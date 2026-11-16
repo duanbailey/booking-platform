@@ -1,0 +1,630 @@
+﻿using System;
+using Microsoft.EntityFrameworkCore.Migrations;
+
+#nullable disable
+
+namespace BookingPlatform.Api.Data.Migrations
+{
+    /// <inheritdoc />
+    public partial class InitialSchema : Migration
+    {
+        /// <inheritdoc />
+        protected override void Up(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.AlterDatabase()
+                .Annotation("MySQL:Charset", "utf8mb4");
+
+            migrationBuilder.CreateTable(
+                name: "outbox",
+                columns: table => new
+                {
+                    id = table.Column<Guid>(type: "char(36)", nullable: false),
+                    event_type = table.Column<string>(type: "varchar(100)", maxLength: 100, nullable: false),
+                    schema_version = table.Column<int>(type: "int", nullable: false),
+                    message_group_id = table.Column<string>(type: "varchar(128)", maxLength: 128, nullable: false),
+                    payload = table.Column<string>(type: "json", nullable: false),
+                    created_at = table.Column<DateTime>(type: "datetime(6)", nullable: false),
+                    published_at = table.Column<DateTime>(type: "datetime(6)", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_outbox", x => x.id);
+                })
+                .Annotation("MySQL:Charset", "utf8mb4");
+
+            migrationBuilder.CreateTable(
+                name: "users",
+                columns: table => new
+                {
+                    id = table.Column<Guid>(type: "char(36)", nullable: false),
+                    email = table.Column<string>(type: "varchar(254)", maxLength: 254, nullable: false, collation: "utf8mb4_0900_as_ci"),
+                    password_hash = table.Column<string>(type: "varchar(255)", maxLength: 255, nullable: true),
+                    name = table.Column<string>(type: "varchar(200)", maxLength: 200, nullable: false),
+                    time_zone = table.Column<string>(type: "varchar(64)", maxLength: 64, nullable: false),
+                    created_at = table.Column<DateTime>(type: "datetime(6)", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_users", x => x.id);
+                })
+                .Annotation("MySQL:Charset", "utf8mb4");
+
+            migrationBuilder.CreateTable(
+                name: "businesses",
+                columns: table => new
+                {
+                    id = table.Column<Guid>(type: "char(36)", nullable: false),
+                    name = table.Column<string>(type: "varchar(200)", maxLength: 200, nullable: false),
+                    owner_user_id = table.Column<Guid>(type: "char(36)", nullable: false),
+                    time_zone = table.Column<string>(type: "varchar(64)", maxLength: 64, nullable: false),
+                    min_notice_minutes = table.Column<int>(type: "int", nullable: false, defaultValue: 120),
+                    cancellation_window_hours = table.Column<int>(type: "int", nullable: false, defaultValue: 24),
+                    max_advance_days = table.Column<int>(type: "int", nullable: false, defaultValue: 21),
+                    slot_step_minutes = table.Column<int>(type: "int", nullable: false, defaultValue: 30),
+                    created_at = table.Column<DateTime>(type: "datetime(6)", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_businesses", x => x.id);
+                    table.CheckConstraint("ck_businesses_cancellation_window", "cancellation_window_hours >= 0");
+                    table.CheckConstraint("ck_businesses_max_advance", "max_advance_days >= 1");
+                    table.CheckConstraint("ck_businesses_min_notice", "min_notice_minutes >= 0");
+                    table.CheckConstraint("ck_businesses_slot_step", "slot_step_minutes >= 1");
+                    table.ForeignKey(
+                        name: "FK_businesses_users_owner_user_id",
+                        column: x => x.owner_user_id,
+                        principalTable: "users",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Restrict);
+                })
+                .Annotation("MySQL:Charset", "utf8mb4");
+
+            migrationBuilder.CreateTable(
+                name: "notifications",
+                columns: table => new
+                {
+                    id = table.Column<Guid>(type: "char(36)", nullable: false),
+                    event_id = table.Column<Guid>(type: "char(36)", nullable: false),
+                    recipient_user_id = table.Column<Guid>(type: "char(36)", nullable: false),
+                    kind = table.Column<string>(type: "enum('Invite','AccessGranted','Confirmation','Rescheduled','Cancelled','LocalTimeChanged','RebookedInsideWindow','Reminder24h','Reminder1h')", nullable: false),
+                    status = table.Column<string>(type: "enum('Pending','Sent','Failed')", nullable: false),
+                    ses_message_id = table.Column<string>(type: "varchar(255)", maxLength: 255, nullable: true),
+                    error = table.Column<string>(type: "text", nullable: true),
+                    created_at = table.Column<DateTime>(type: "datetime(6)", nullable: false),
+                    sent_at = table.Column<DateTime>(type: "datetime(6)", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_notifications", x => x.id);
+                    table.ForeignKey(
+                        name: "FK_notifications_users_recipient_user_id",
+                        column: x => x.recipient_user_id,
+                        principalTable: "users",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Restrict);
+                })
+                .Annotation("MySQL:Charset", "utf8mb4");
+
+            migrationBuilder.CreateTable(
+                name: "platform_admins",
+                columns: table => new
+                {
+                    user_id = table.Column<Guid>(type: "char(36)", nullable: false),
+                    granted_by = table.Column<Guid>(type: "char(36)", nullable: true),
+                    granted_at = table.Column<DateTime>(type: "datetime(6)", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_platform_admins", x => x.user_id);
+                    table.ForeignKey(
+                        name: "FK_platform_admins_users_granted_by",
+                        column: x => x.granted_by,
+                        principalTable: "users",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_platform_admins_users_user_id",
+                        column: x => x.user_id,
+                        principalTable: "users",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Restrict);
+                })
+                .Annotation("MySQL:Charset", "utf8mb4");
+
+            migrationBuilder.CreateTable(
+                name: "user_invites",
+                columns: table => new
+                {
+                    id = table.Column<Guid>(type: "char(36)", nullable: false),
+                    user_id = table.Column<Guid>(type: "char(36)", nullable: false),
+                    token_hash = table.Column<string>(type: "varchar(128)", maxLength: 128, nullable: true),
+                    expires_at = table.Column<DateTime>(type: "datetime(6)", nullable: true),
+                    used_at = table.Column<DateTime>(type: "datetime(6)", nullable: true),
+                    created_by = table.Column<Guid>(type: "char(36)", nullable: false),
+                    created_at = table.Column<DateTime>(type: "datetime(6)", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_user_invites", x => x.id);
+                    table.ForeignKey(
+                        name: "FK_user_invites_users_created_by",
+                        column: x => x.created_by,
+                        principalTable: "users",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_user_invites_users_user_id",
+                        column: x => x.user_id,
+                        principalTable: "users",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Restrict);
+                })
+                .Annotation("MySQL:Charset", "utf8mb4");
+
+            migrationBuilder.CreateTable(
+                name: "services",
+                columns: table => new
+                {
+                    id = table.Column<Guid>(type: "char(36)", nullable: false),
+                    business_id = table.Column<Guid>(type: "char(36)", nullable: false),
+                    name = table.Column<string>(type: "varchar(200)", maxLength: 200, nullable: false),
+                    duration_minutes = table.Column<int>(type: "int", nullable: false),
+                    buffer_before_minutes = table.Column<int>(type: "int", nullable: false),
+                    buffer_after_minutes = table.Column<int>(type: "int", nullable: false),
+                    description = table.Column<string>(type: "varchar(2000)", maxLength: 2000, nullable: true),
+                    price = table.Column<decimal>(type: "decimal(10,2)", precision: 10, scale: 2, nullable: false),
+                    created_at = table.Column<DateTime>(type: "datetime(6)", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_services", x => x.id);
+                    table.CheckConstraint("ck_services_buffers", "buffer_before_minutes >= 0 AND buffer_after_minutes >= 0");
+                    table.CheckConstraint("ck_services_duration", "duration_minutes >= 1");
+                    table.CheckConstraint("ck_services_price", "price >= 0");
+                    table.ForeignKey(
+                        name: "FK_services_businesses_business_id",
+                        column: x => x.business_id,
+                        principalTable: "businesses",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Restrict);
+                })
+                .Annotation("MySQL:Charset", "utf8mb4");
+
+            migrationBuilder.CreateTable(
+                name: "staff",
+                columns: table => new
+                {
+                    id = table.Column<Guid>(type: "char(36)", nullable: false),
+                    user_id = table.Column<Guid>(type: "char(36)", nullable: false),
+                    business_id = table.Column<Guid>(type: "char(36)", nullable: false),
+                    removed_at = table.Column<DateTime>(type: "datetime(6)", nullable: true),
+                    created_at = table.Column<DateTime>(type: "datetime(6)", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_staff", x => x.id);
+                    table.ForeignKey(
+                        name: "FK_staff_businesses_business_id",
+                        column: x => x.business_id,
+                        principalTable: "businesses",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_staff_users_user_id",
+                        column: x => x.user_id,
+                        principalTable: "users",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Restrict);
+                })
+                .Annotation("MySQL:Charset", "utf8mb4");
+
+            migrationBuilder.CreateTable(
+                name: "time_zone_changes",
+                columns: table => new
+                {
+                    id = table.Column<Guid>(type: "char(36)", nullable: false),
+                    business_id = table.Column<Guid>(type: "char(36)", nullable: false),
+                    old_time_zone = table.Column<string>(type: "varchar(64)", maxLength: 64, nullable: false),
+                    new_time_zone = table.Column<string>(type: "varchar(64)", maxLength: 64, nullable: false),
+                    changed_by = table.Column<Guid>(type: "char(36)", nullable: false),
+                    changed_at = table.Column<DateTime>(type: "datetime(6)", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_time_zone_changes", x => x.id);
+                    table.ForeignKey(
+                        name: "FK_time_zone_changes_businesses_business_id",
+                        column: x => x.business_id,
+                        principalTable: "businesses",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_time_zone_changes_users_changed_by",
+                        column: x => x.changed_by,
+                        principalTable: "users",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Restrict);
+                })
+                .Annotation("MySQL:Charset", "utf8mb4");
+
+            migrationBuilder.CreateTable(
+                name: "availability_exceptions",
+                columns: table => new
+                {
+                    id = table.Column<Guid>(type: "char(36)", nullable: false),
+                    staff_id = table.Column<Guid>(type: "char(36)", nullable: false),
+                    date = table.Column<DateOnly>(type: "date", nullable: false),
+                    start_local = table.Column<TimeOnly>(type: "time", nullable: true),
+                    end_local = table.Column<TimeOnly>(type: "time", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_availability_exceptions", x => x.id);
+                    table.CheckConstraint("ck_availability_exceptions_range", "(start_local IS NULL AND end_local IS NULL) OR (start_local IS NOT NULL AND end_local IS NOT NULL AND end_local > start_local)");
+                    table.ForeignKey(
+                        name: "FK_availability_exceptions_staff_staff_id",
+                        column: x => x.staff_id,
+                        principalTable: "staff",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Restrict);
+                })
+                .Annotation("MySQL:Charset", "utf8mb4");
+
+            migrationBuilder.CreateTable(
+                name: "availability_rules",
+                columns: table => new
+                {
+                    id = table.Column<Guid>(type: "char(36)", nullable: false),
+                    staff_id = table.Column<Guid>(type: "char(36)", nullable: false),
+                    day_of_week = table.Column<string>(type: "enum('Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday')", nullable: false),
+                    start_local = table.Column<TimeOnly>(type: "time", nullable: false),
+                    end_local = table.Column<TimeOnly>(type: "time", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_availability_rules", x => x.id);
+                    table.CheckConstraint("ck_availability_rules_range", "end_local > start_local");
+                    table.ForeignKey(
+                        name: "FK_availability_rules_staff_staff_id",
+                        column: x => x.staff_id,
+                        principalTable: "staff",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Restrict);
+                })
+                .Annotation("MySQL:Charset", "utf8mb4");
+
+            migrationBuilder.CreateTable(
+                name: "bookings",
+                columns: table => new
+                {
+                    id = table.Column<Guid>(type: "char(36)", nullable: false),
+                    staff_id = table.Column<Guid>(type: "char(36)", nullable: false),
+                    service_id = table.Column<Guid>(type: "char(36)", nullable: false),
+                    customer_id = table.Column<Guid>(type: "char(36)", nullable: false),
+                    start_utc = table.Column<DateTime>(type: "datetime(6)", nullable: false),
+                    end_utc = table.Column<DateTime>(type: "datetime(6)", nullable: false),
+                    blocked_start_utc = table.Column<DateTime>(type: "datetime(6)", nullable: false),
+                    blocked_end_utc = table.Column<DateTime>(type: "datetime(6)", nullable: false),
+                    status = table.Column<string>(type: "enum('Confirmed','Cancelled')", nullable: false),
+                    created_at = table.Column<DateTime>(type: "datetime(6)", nullable: false),
+                    cancelled_at = table.Column<DateTime>(type: "datetime(6)", nullable: true),
+                    cancelled_by = table.Column<Guid>(type: "char(36)", nullable: true),
+                    cancellation_reason = table.Column<string>(type: "enum('CustomerCancelled','BusinessCancelled','TimeOff','AvailabilityChanged','StaffRemoved')", nullable: true),
+                    version = table.Column<int>(type: "int", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_bookings", x => x.id);
+                    table.CheckConstraint("ck_bookings_blocked_range", "blocked_start_utc <= start_utc AND blocked_end_utc >= end_utc");
+                    table.CheckConstraint("ck_bookings_cancellation", "(status = 'Confirmed' AND cancelled_at IS NULL AND cancelled_by IS NULL AND cancellation_reason IS NULL) OR (status = 'Cancelled' AND cancelled_at IS NOT NULL AND cancelled_by IS NOT NULL AND cancellation_reason IS NOT NULL)");
+                    table.CheckConstraint("ck_bookings_range", "end_utc > start_utc");
+                    table.ForeignKey(
+                        name: "FK_bookings_services_service_id",
+                        column: x => x.service_id,
+                        principalTable: "services",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_bookings_staff_staff_id",
+                        column: x => x.staff_id,
+                        principalTable: "staff",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_bookings_users_cancelled_by",
+                        column: x => x.cancelled_by,
+                        principalTable: "users",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_bookings_users_customer_id",
+                        column: x => x.customer_id,
+                        principalTable: "users",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Restrict);
+                })
+                .Annotation("MySQL:Charset", "utf8mb4");
+
+            migrationBuilder.CreateTable(
+                name: "staff_services",
+                columns: table => new
+                {
+                    staff_id = table.Column<Guid>(type: "char(36)", nullable: false),
+                    service_id = table.Column<Guid>(type: "char(36)", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_staff_services", x => new { x.staff_id, x.service_id });
+                    table.ForeignKey(
+                        name: "FK_staff_services_services_service_id",
+                        column: x => x.service_id,
+                        principalTable: "services",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_staff_services_staff_staff_id",
+                        column: x => x.staff_id,
+                        principalTable: "staff",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Restrict);
+                })
+                .Annotation("MySQL:Charset", "utf8mb4");
+
+            migrationBuilder.CreateTable(
+                name: "time_off",
+                columns: table => new
+                {
+                    id = table.Column<Guid>(type: "char(36)", nullable: false),
+                    staff_id = table.Column<Guid>(type: "char(36)", nullable: false),
+                    start_utc = table.Column<DateTime>(type: "datetime(6)", nullable: false),
+                    end_utc = table.Column<DateTime>(type: "datetime(6)", nullable: false),
+                    created_at = table.Column<DateTime>(type: "datetime(6)", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_time_off", x => x.id);
+                    table.CheckConstraint("ck_time_off_range", "end_utc > start_utc");
+                    table.ForeignKey(
+                        name: "FK_time_off_staff_staff_id",
+                        column: x => x.staff_id,
+                        principalTable: "staff",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Restrict);
+                })
+                .Annotation("MySQL:Charset", "utf8mb4");
+
+            migrationBuilder.CreateTable(
+                name: "booking_history",
+                columns: table => new
+                {
+                    id = table.Column<Guid>(type: "char(36)", nullable: false),
+                    booking_id = table.Column<Guid>(type: "char(36)", nullable: false),
+                    type = table.Column<string>(type: "enum('Created','Rescheduled')", nullable: false),
+                    actor_user_id = table.Column<Guid>(type: "char(36)", nullable: false),
+                    actor_role = table.Column<string>(type: "enum('Owner','Staff','Customer')", nullable: false),
+                    at = table.Column<DateTime>(type: "datetime(6)", nullable: false),
+                    staff_id = table.Column<Guid>(type: "char(36)", nullable: false),
+                    start_utc = table.Column<DateTime>(type: "datetime(6)", nullable: false),
+                    end_utc = table.Column<DateTime>(type: "datetime(6)", nullable: false),
+                    previous_staff_id = table.Column<Guid>(type: "char(36)", nullable: true),
+                    previous_start_utc = table.Column<DateTime>(type: "datetime(6)", nullable: true),
+                    previous_end_utc = table.Column<DateTime>(type: "datetime(6)", nullable: true),
+                    minimum_notice_overridden = table.Column<bool>(type: "tinyint(1)", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_booking_history", x => x.id);
+                    table.CheckConstraint("ck_booking_history_previous_slot", "(type = 'Created' AND previous_staff_id IS NULL AND previous_start_utc IS NULL AND previous_end_utc IS NULL) OR (type = 'Rescheduled' AND previous_staff_id IS NOT NULL AND previous_start_utc IS NOT NULL AND previous_end_utc IS NOT NULL)");
+                    table.ForeignKey(
+                        name: "FK_booking_history_bookings_booking_id",
+                        column: x => x.booking_id,
+                        principalTable: "bookings",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_booking_history_staff_previous_staff_id",
+                        column: x => x.previous_staff_id,
+                        principalTable: "staff",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_booking_history_staff_staff_id",
+                        column: x => x.staff_id,
+                        principalTable: "staff",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_booking_history_users_actor_user_id",
+                        column: x => x.actor_user_id,
+                        principalTable: "users",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Restrict);
+                })
+                .Annotation("MySQL:Charset", "utf8mb4");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_availability_exceptions_staff_id_date",
+                table: "availability_exceptions",
+                columns: new[] { "staff_id", "date" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_availability_rules_staff_id_day_of_week",
+                table: "availability_rules",
+                columns: new[] { "staff_id", "day_of_week" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_booking_history_actor_user_id",
+                table: "booking_history",
+                column: "actor_user_id");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_booking_history_booking_id_at",
+                table: "booking_history",
+                columns: new[] { "booking_id", "at" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_booking_history_previous_staff_id",
+                table: "booking_history",
+                column: "previous_staff_id");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_booking_history_staff_id",
+                table: "booking_history",
+                column: "staff_id");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_bookings_cancelled_by",
+                table: "bookings",
+                column: "cancelled_by");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_bookings_customer_id_start_utc",
+                table: "bookings",
+                columns: new[] { "customer_id", "start_utc" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_bookings_service_id",
+                table: "bookings",
+                column: "service_id");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_bookings_staff_id_status_blocked_start_utc",
+                table: "bookings",
+                columns: new[] { "staff_id", "status", "blocked_start_utc" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_businesses_owner_user_id",
+                table: "businesses",
+                column: "owner_user_id",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_notifications_event_id_recipient_user_id",
+                table: "notifications",
+                columns: new[] { "event_id", "recipient_user_id" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_notifications_recipient_user_id",
+                table: "notifications",
+                column: "recipient_user_id");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_outbox_published_at_created_at",
+                table: "outbox",
+                columns: new[] { "published_at", "created_at" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_platform_admins_granted_by",
+                table: "platform_admins",
+                column: "granted_by");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_services_business_id",
+                table: "services",
+                column: "business_id");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_staff_business_id",
+                table: "staff",
+                column: "business_id");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_staff_user_id_business_id",
+                table: "staff",
+                columns: new[] { "user_id", "business_id" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_staff_services_service_id",
+                table: "staff_services",
+                column: "service_id");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_time_off_staff_id_start_utc",
+                table: "time_off",
+                columns: new[] { "staff_id", "start_utc" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_time_zone_changes_business_id_changed_at",
+                table: "time_zone_changes",
+                columns: new[] { "business_id", "changed_at" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_time_zone_changes_changed_by",
+                table: "time_zone_changes",
+                column: "changed_by");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_user_invites_created_by",
+                table: "user_invites",
+                column: "created_by");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_user_invites_token_hash",
+                table: "user_invites",
+                column: "token_hash",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_user_invites_user_id",
+                table: "user_invites",
+                column: "user_id");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_users_email",
+                table: "users",
+                column: "email",
+                unique: true);
+        }
+
+        /// <inheritdoc />
+        protected override void Down(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.DropTable(
+                name: "availability_exceptions");
+
+            migrationBuilder.DropTable(
+                name: "availability_rules");
+
+            migrationBuilder.DropTable(
+                name: "booking_history");
+
+            migrationBuilder.DropTable(
+                name: "notifications");
+
+            migrationBuilder.DropTable(
+                name: "outbox");
+
+            migrationBuilder.DropTable(
+                name: "platform_admins");
+
+            migrationBuilder.DropTable(
+                name: "staff_services");
+
+            migrationBuilder.DropTable(
+                name: "time_off");
+
+            migrationBuilder.DropTable(
+                name: "time_zone_changes");
+
+            migrationBuilder.DropTable(
+                name: "user_invites");
+
+            migrationBuilder.DropTable(
+                name: "bookings");
+
+            migrationBuilder.DropTable(
+                name: "services");
+
+            migrationBuilder.DropTable(
+                name: "staff");
+
+            migrationBuilder.DropTable(
+                name: "businesses");
+
+            migrationBuilder.DropTable(
+                name: "users");
+        }
+    }
+}

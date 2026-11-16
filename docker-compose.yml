@@ -1,0 +1,20 @@
+# Local MySQL for development and integration tests.
+# Start: docker compose up -d --wait
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: localdev
+    command: ["--default-time-zone=+00:00"] # timestamps are UTC (R2)
+    ports:
+      - "3307:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-plocaldev"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    volumes:
+      - mysql-data:/var/lib/mysql
+
+volumes:
+  mysql-data:

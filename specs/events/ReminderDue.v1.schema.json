@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ReminderDue v1",
+  "description": "Sent by EventBridge Scheduler at the reminder time, not by the API (R9).",
+  "allOf": [{ "$ref": "envelope.v1.schema.json" }],
+  "properties": {
+    "eventType": { "const": "ReminderDue" },
+    "schemaVersion": { "const": 1 },
+    "data": {
+      "type": "object",
+      "required": ["bookingId", "reminder", "scheduledForStartUtc"],
+      "additionalProperties": false,
+      "properties": {
+        "bookingId": { "$ref": "common.v1.schema.json#/$defs/id" },
+        "reminder": { "enum": ["24h", "1h"] },
+        "scheduledForStartUtc": {
+          "description": "The booking start this reminder was scheduled for. If the booking now starts at a different time, the reminder is stale and is dropped.",
+          "$ref": "common.v1.schema.json#/$defs/utcTimestamp"
+        }
+      }
+    }
+  }
+}

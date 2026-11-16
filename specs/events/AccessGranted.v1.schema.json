@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AccessGranted v1",
+  "description": "Emitted when a user becomes the owner of a business (created by an admin) or is added as staff by the owner. inviteId is set when the account was created without a password; the worker then generates the invite token and sends a set-password email. Otherwise the worker sends a notice that the user now has the role.",
+  "allOf": [{ "$ref": "envelope.v1.schema.json" }],
+  "properties": {
+    "eventType": { "const": "AccessGranted" },
+    "schemaVersion": { "const": 1 },
+    "data": {
+      "type": "object",
+      "required": ["userId", "businessId", "role", "inviteId", "grantedByUserId"],
+      "additionalProperties": false,
+      "properties": {
+        "userId": { "$ref": "common.v1.schema.json#/$defs/id" },
+        "businessId": { "$ref": "common.v1.schema.json#/$defs/id" },
+        "role": { "enum": ["Owner", "Staff"] },
+        "inviteId": {
+          "description": "The user_invites row to send, or null when the user already has a password.",
+          "oneOf": [{ "$ref": "common.v1.schema.json#/$defs/id" }, { "type": "null" }]
+        },
+        "grantedByUserId": { "$ref": "common.v1.schema.json#/$defs/id" }
+      }
+    }
+  }
+}

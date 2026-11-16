@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RebookedInsideWindow v1",
+  "description": "Emitted when a booking is made for a customer (by them, or by staff or an owner on their behalf) with a business while the customer holds a booking with that business that starts within the cancellation window (R4). Emitted in addition to the new booking's BookingCreated.",
+  "allOf": [{ "$ref": "envelope.v1.schema.json" }],
+  "properties": {
+    "eventType": { "const": "RebookedInsideWindow" },
+    "schemaVersion": { "const": 1 },
+    "data": {
+      "type": "object",
+      "required": ["businessId", "businessTimeZone", "customerId", "originalBookingId", "originalSlot", "newBookingId", "newSlot"],
+      "additionalProperties": false,
+      "properties": {
+        "businessId": { "$ref": "common.v1.schema.json#/$defs/id" },
+        "businessTimeZone": { "$ref": "common.v1.schema.json#/$defs/ianaTimeZone" },
+        "customerId": { "$ref": "common.v1.schema.json#/$defs/id" },
+        "originalBookingId": { "$ref": "common.v1.schema.json#/$defs/id" },
+        "originalSlot": { "$ref": "common.v1.schema.json#/$defs/slot" },
+        "newBookingId": { "$ref": "common.v1.schema.json#/$defs/id" },
+        "newSlot": { "$ref": "common.v1.schema.json#/$defs/slot" }
+      }
+    }
+  }
+}

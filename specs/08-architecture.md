@@ -1,0 +1,2 @@
+C# API on ECS Fargate ([ADR 0008](../docs/adr/0008-outbox-relay-in-api.md)), RDS MySQL, SQS plus a dead-letter queue, FIFO queue, an outbox publisher (a background service in the API, ADR 0008), a Node Lambda worker, SES, EventBridge Scheduler for reminders, Secrets Manager, CloudWatch.
+Infrastructure as code with Terraform ([ADR 0009](../docs/adr/0009-terraform-for-infrastructure.md)), which is another thing employers like to see.

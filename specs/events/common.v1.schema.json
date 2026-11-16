@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Common definitions",
+  "$defs": {
+    "id": { "type": "string", "format": "uuid" },
+    "utcTimestamp": {
+      "description": "RFC 3339 timestamp in UTC, always with a Z suffix.",
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "ianaTimeZone": {
+      "description": "IANA time zone name, e.g. Europe/London (R2).",
+      "type": "string",
+      "minLength": 1
+    },
+    "actor": {
+      "description": "The user who made a change.",
+      "type": "object",
+      "required": ["userId", "role"],
+      "additionalProperties": false,
+      "properties": {
+        "userId": { "$ref": "#/$defs/id" },
+        "role": { "enum": ["Owner", "Staff", "Customer"] }
+      }
+    },
+    "slot": {
+      "description": "A staff member and a half-open interval [startUtc, endUtc), excluding buffers.",
+      "type": "object",
+      "required": ["staffId", "startUtc", "endUtc"],
+      "additionalProperties": false,
+      "properties": {
+        "staffId": { "$ref": "#/$defs/id" },
+        "startUtc": { "$ref": "#/$defs/utcTimestamp" },
+        "endUtc": { "$ref": "#/$defs/utcTimestamp" }
+      }
+    }
+  }
+}

@@ -1,0 +1,24 @@
+bin/
+obj/
+*.user
+.vs/
+node_modules/
+worker/dist/
+coverage/
+TestResults/
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Claude Code per-user settings
+.claude/settings.local.json
+
+# Terraform (ADR 0009)
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log

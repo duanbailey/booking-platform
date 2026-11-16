@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BookingRescheduled v1",
+  "description": "Emitted once per reschedule. Never accompanied by BookingCancelled or BookingCreated (ADR 0003).",
+  "allOf": [{ "$ref": "envelope.v1.schema.json" }],
+  "properties": {
+    "eventType": { "const": "BookingRescheduled" },
+    "schemaVersion": { "const": 1 },
+    "data": {
+      "type": "object",
+      "required": ["bookingId", "bookingVersion", "businessId", "businessTimeZone", "serviceId", "customerId", "oldSlot", "newSlot", "rescheduledBy"],
+      "additionalProperties": false,
+      "properties": {
+        "bookingId": { "$ref": "common.v1.schema.json#/$defs/id" },
+        "bookingVersion": { "type": "integer", "minimum": 1 },
+        "businessId": { "$ref": "common.v1.schema.json#/$defs/id" },
+        "businessTimeZone": { "$ref": "common.v1.schema.json#/$defs/ianaTimeZone" },
+        "serviceId": { "$ref": "common.v1.schema.json#/$defs/id" },
+        "customerId": { "$ref": "common.v1.schema.json#/$defs/id" },
+        "oldSlot": { "$ref": "common.v1.schema.json#/$defs/slot" },
+        "newSlot": { "$ref": "common.v1.schema.json#/$defs/slot" },
+        "rescheduledBy": { "$ref": "common.v1.schema.json#/$defs/actor" }
+      }
+    }
+  }
+}

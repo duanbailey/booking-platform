@@ -1,0 +1,1718 @@
+# Conventions
+# Auth: JWT bearer token carrying the user's ID. Roles (owner, staff, customer,
+#   admin) are not claims; they are worked out per request from the data
+#   (specs/07-nfr.md).
+# IDs: UUIDs
+# Timestamps: ISO 8601 in UTC (2026-11-20T19:00:00Z). Local dates and times
+#   (availability, slot query ranges) are in the business's IANA time zone (R2).
+# Errors: one shared error shape: code, message, rule (business rule ID or null)
+#   and details.
+# Pagination: cursor-based for list endpoints (?limit=&cursor=, response
+#   { items, nextCursor }).
+# Versioning: /v1/ prefix
+# Confirm-before-acting (R2, R4, R6): see the ConfirmationRequired response.
+
+openapi: 3.1.0
+info:
+  title: Booking Platform API
+  version: 1.0.0
+  description: |
+    Appointment booking API. Business rules are referenced by ID (R1-R9,
+    specs/03-business-rules.md); authorization follows specs/07-nfr.md.
+
+    ## Status codes
+    - **400** Malformed request or failed validation (`ValidationFailed`,
+      `RangeTooLong`, `InviteInvalid`).
+    - **401** No valid token (`Unauthenticated`), or bad login credentials
+      (`InvalidCredentials`).
+    - **403** The caller can view the resource but may not perform the action.
+    - **404** The resource does not exist, or the caller may not view it. The API
+      never reveals that a resource the caller may not view exists.
+    - **409** `SlotConflict` (R7), `ConfirmationRequired` (R2, R4, R6),
+      `EmailTaken`, `AlreadyOwner`, `AlreadyStaff`.
+    - **422** Business-rule refusal: `InviteNotPending`, `MinimumNotice` (R3),
+      `CancellationWindowPassed` (R4), `SlotUnavailable` (R8),
+      `StaffNotAssignedToService`, `BookingCancelled`, `CustomerNotFound`.
+
+    ## Confirm-before-acting (R2, R4, R6)
+    Time off, weekly availability, date exceptions, time zone changes and staff
+    removal (R6, R2), and booking again inside the cancellation window (R4), use
+    one pattern:
+
+    1. The client sends the request without `confirm`.
+    2. If nothing needs confirming, the change is made (2xx).
+    3. Otherwise nothing changes, and the response is 409 `ConfirmationRequired`
+       with `details.affectedBookings`.
+    4. To confirm, the client sends the same request again with
+       `confirm.affectedBookingIds` listing the bookings it was shown.
+    5. The server works out the affected set again under the staff lock
+       (ADR 0002). If it matches, the change is made; if not, it returns 409
+       `ConfirmationRequired` again with the new list. A booking the user was
+       never shown is never cancelled.
+
+    A customer's own "are you sure?" step before cancelling or rescheduling is
+    client-only.
+
+servers:
+  - url: /
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Auth
+  - name: Admin
+  - name: Businesses
+  - name: Services
+  - name: Staff
+  - name: Availability
+  - name: Slots
+  - name: Bookings
+
+paths:
+  # ---------------------------------------------------------------- Auth
+  /v1/auth/register:
+    post:
+      tags: [Auth]
+      operationId: register
+      summary: Customer sign-up
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name, email, password, timeZone]
+              properties:
+                name: { $ref: '#/components/schemas/PersonName' }
+                email: { $ref: '#/components/schemas/Email' }
+                password: { $ref: '#/components/schemas/Password' }
+                timeZone: { $ref: '#/components/schemas/IanaTimeZone' }
+      responses:
+        '201':
+          description: Account created; the caller is logged in.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthToken' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '409':
+          description: '`EmailTaken`: the email already belongs to an account.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /v1/auth/login:
+    post:
+      tags: [Auth]
+      operationId: login
+      summary: Log in with email and password
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email, password]
+              properties:
+                email: { $ref: '#/components/schemas/Email' }
+                password: { type: string }
+      responses:
+        '200':
+          description: Logged in.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthToken' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401':
+          description: |
+            `InvalidCredentials`. Also returned for an account that has no
+            password yet (invite not accepted), without saying so.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /v1/auth/accept-invite:
+    post:
+      tags: [Auth]
+      operationId: acceptInvite
+      summary: Set a password from an invite link
+      description: |
+        Sets the user's password, marks the invite used and logs the user in.
+        Invites are single-use, expire 7 days after the email is sent, and only
+        the newest invite for a user works (specs/05-data-model.md).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [token, password]
+              properties:
+                token: { type: string, minLength: 1 }
+                password: { $ref: '#/components/schemas/Password' }
+      responses:
+        '200':
+          description: Password set; the caller is logged in.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthToken' }
+        '400':
+          description: |
+            `InviteInvalid`: the token is unknown, expired or already used (the
+            response does not say which), or `ValidationFailed`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /v1/me:
+    get:
+      tags: [Auth]
+      operationId: getMe
+      summary: Current user's profile and roles
+      description: The client uses this to choose the admin, owner, staff or customer pages.
+      responses:
+        '200':
+          description: The current user.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+    patch:
+      tags: [Auth]
+      operationId: updateMe
+      summary: Change name or time zone
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                name: { $ref: '#/components/schemas/PersonName' }
+                timeZone: { $ref: '#/components/schemas/IanaTimeZone' }
+      responses:
+        '200':
+          description: Updated profile.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+
+  /v1/me/bookings:
+    get:
+      tags: [Bookings]
+      operationId: listMyBookings
+      summary: Bookings where the caller is the customer
+      parameters:
+        - $ref: '#/components/parameters/BookingStatus'
+        - $ref: '#/components/parameters/FromUtc'
+        - $ref: '#/components/parameters/ToUtc'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: A page of bookings, ordered by start time.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BookingPage' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+
+  # ---------------------------------------------------------------- Admin
+  /v1/admin/owners:
+    post:
+      tags: [Admin]
+      operationId: createOwner
+      summary: Create a business and its owner
+      description: |
+        Admin only. Creates the business with default settings. If no account
+        has `ownerEmail`, an account is created without a password and an
+        invite is sent; otherwise the existing account becomes the owner and is
+        emailed. Emits `AccessGranted`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ownerName, ownerEmail, businessName, businessTimeZone]
+              properties:
+                ownerName:
+                  $ref: '#/components/schemas/PersonName'
+                  description: Used only when a new account is created.
+                ownerEmail: { $ref: '#/components/schemas/Email' }
+                businessName: { $ref: '#/components/schemas/BusinessName' }
+                businessTimeZone: { $ref: '#/components/schemas/IanaTimeZone' }
+      responses:
+        '201':
+          description: Business created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Business' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: '`AlreadyOwner`: the account already owns a business. Nothing changes.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /v1/users/{userId}/resend-invite:
+    post:
+      tags: [Admin, Staff]
+      operationId: resendInvite
+      summary: Resend a set-password invite
+      description: |
+        An admin may resend invites for owner accounts; an owner may resend
+        invites for their business's staff. A new invite is sent and only the
+        newest link works. Emits `AccessGranted`.
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '204': { description: Invite queued. }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422':
+          description: '`InviteNotPending`: the account already has a password. Nothing changes.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  # ---------------------------------------------------------------- Businesses
+  /v1/businesses/{businessId}:
+    get:
+      tags: [Businesses]
+      operationId: getBusiness
+      summary: Business details and public settings
+      description: Any signed-in user.
+      parameters:
+        - $ref: '#/components/parameters/BusinessId'
+      responses:
+        '200':
+          description: The business.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Business' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/businesses/{businessId}/settings:
+    patch:
+      tags: [Businesses]
+      operationId: updateBusinessSettings
+      summary: Change the business's name or settings
+      description: |
+        Owner only. Applies to slot generation and bookings from now on;
+        existing bookings are unchanged (R3, R4, R8). The time zone is changed
+        through `time-zone-change` instead.
+      parameters:
+        - $ref: '#/components/parameters/BusinessId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                name: { $ref: '#/components/schemas/BusinessName' }
+                minNoticeMinutes: { $ref: '#/components/schemas/MinNoticeMinutes' }
+                cancellationWindowHours: { $ref: '#/components/schemas/CancellationWindowHours' }
+                maxAdvanceDays: { $ref: '#/components/schemas/MaxAdvanceDays' }
+                slotStepMinutes: { $ref: '#/components/schemas/SlotStepMinutes' }
+      responses:
+        '200':
+          description: Updated business.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Business' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/businesses/{businessId}/time-zone-change:
+    post:
+      tags: [Businesses]
+      operationId: changeBusinessTimeZone
+      summary: Change the business's time zone (R2)
+      description: |
+        Owner only. Existing bookings keep their UTC times; availability keeps
+        its local times, read in the new zone. Bookings that have not started
+        and fall outside availability use the confirm pattern; on confirmation
+        they are cancelled with reason `AvailabilityChanged` (R6). Customers of
+        remaining bookings whose local time changes are notified. Takes the
+        staff lock for every staff member in the business (ADR 0002).
+      parameters:
+        - $ref: '#/components/parameters/BusinessId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [timeZone]
+              properties:
+                timeZone:
+                  $ref: '#/components/schemas/IanaTimeZone'
+                  description: |
+                    If this is the current time zone, the request is a no-op:
+                    200 with the business unchanged, no change record and no
+                    notifications.
+                confirm: { $ref: '#/components/schemas/Confirm' }
+      responses:
+        '200':
+          description: |
+            Time zone changed (or already set). The change record is in
+            `time-zone-changes`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Business' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/ConfirmationRequired' }
+
+  /v1/businesses/{businessId}/time-zone-changes:
+    get:
+      tags: [Businesses]
+      operationId: listTimeZoneChanges
+      summary: Time zone change audit log (R2)
+      description: Owner only. Newest first.
+      parameters:
+        - $ref: '#/components/parameters/BusinessId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: A page of changes.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageBase'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/TimeZoneChange' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/businesses/{businessId}/bookings:
+    get:
+      tags: [Bookings]
+      operationId: listBusinessBookings
+      summary: Bookings in a business
+      description: |
+        Owner: any booking in the business. Staff: only bookings where they are
+        the staff member; results are limited to their own staff row, and a
+        `staffId` for another staff member gives 403.
+      parameters:
+        - $ref: '#/components/parameters/BusinessId'
+        - name: staffId
+          in: query
+          schema: { $ref: '#/components/schemas/Id' }
+        - $ref: '#/components/parameters/BookingStatus'
+        - $ref: '#/components/parameters/FromUtc'
+        - $ref: '#/components/parameters/ToUtc'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: A page of bookings, ordered by start time.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BookingPage' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------- Services
+  /v1/businesses/{businessId}/services:
+    get:
+      tags: [Services]
+      operationId: listServices
+      summary: Services offered by a business
+      description: Any signed-in user.
+      parameters:
+        - $ref: '#/components/parameters/BusinessId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: A page of services.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageBase'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/Service' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Services]
+      operationId: createService
+      summary: Create a service
+      description: Owner only.
+      parameters:
+        - $ref: '#/components/parameters/BusinessId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name, durationMinutes, bufferBeforeMinutes, bufferAfterMinutes, price]
+              properties:
+                name: { $ref: '#/components/schemas/ServiceName' }
+                description: { $ref: '#/components/schemas/ServiceDescription' }
+                durationMinutes: { $ref: '#/components/schemas/DurationMinutes' }
+                bufferBeforeMinutes: { $ref: '#/components/schemas/BufferMinutes' }
+                bufferAfterMinutes: { $ref: '#/components/schemas/BufferMinutes' }
+                price: { $ref: '#/components/schemas/Price' }
+      responses:
+        '201':
+          description: Service created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceDetail' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/services/{serviceId}:
+    get:
+      tags: [Services]
+      operationId: getService
+      summary: A service and its assigned staff
+      description: Any signed-in user.
+      parameters:
+        - $ref: '#/components/parameters/ServiceId'
+      responses:
+        '200':
+          description: The service.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceDetail' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Services]
+      operationId: updateService
+      summary: Change a service
+      description: |
+        Owner only. Duration and buffer changes affect new bookings and
+        reschedules only; existing bookings keep their snapshot (R1, ADR 0004).
+      parameters:
+        - $ref: '#/components/parameters/ServiceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                name: { $ref: '#/components/schemas/ServiceName' }
+                description: { $ref: '#/components/schemas/ServiceDescription' }
+                durationMinutes: { $ref: '#/components/schemas/DurationMinutes' }
+                bufferBeforeMinutes: { $ref: '#/components/schemas/BufferMinutes' }
+                bufferAfterMinutes: { $ref: '#/components/schemas/BufferMinutes' }
+                price: { $ref: '#/components/schemas/Price' }
+      responses:
+        '200':
+          description: Updated service.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceDetail' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/services/{serviceId}/slots:
+    get:
+      tags: [Slots]
+      operationId: listSlots
+      summary: Open slots for a service (R8)
+      description: |
+        Any signed-in user. Returns slots for every (non-removed) staff member
+        assigned to the service, or only `staffId` if given. `from` and `to` are
+        local dates in the business's time zone, both inclusive, covering at
+        most 30 dates (ADR 0005). A range reaching into the past or past the
+        advance-booking window is not an error; no slots are returned for those
+        times. Spring-forward gaps are skipped and only the first hour of a
+        fall-back overlap is offered (R2).
+      parameters:
+        - $ref: '#/components/parameters/ServiceId'
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: staffId
+          in: query
+          schema: { $ref: '#/components/schemas/Id' }
+        - name: ignoreMinimumNotice
+          in: query
+          description: |
+            Include slots inside the minimum notice period, so the R3 override
+            has something to pick from. Allowed for the owner, and for staff
+            when `staffId` is their own staff row; otherwise 403.
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: Open slots, ordered by start time.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [businessTimeZone, slots]
+                properties:
+                  businessTimeZone: { $ref: '#/components/schemas/IanaTimeZone' }
+                  slots:
+                    type: array
+                    items: { $ref: '#/components/schemas/Slot' }
+        '400':
+          description: |
+            `RangeTooLong` (more than 30 dates; `details.maxDays` is 30), or
+            `ValidationFailed` (e.g. `to` before `from`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example:
+                code: RangeTooLong
+                message: A slot query can cover at most 30 days.
+                rule: null
+                details: { maxDays: 30 }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------- Staff
+  /v1/businesses/{businessId}/staff:
+    get:
+      tags: [Staff]
+      operationId: listStaff
+      summary: Staff in a business
+      description: Any signed-in user. Removed staff are not listed.
+      parameters:
+        - $ref: '#/components/parameters/BusinessId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: A page of staff.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageBase'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/StaffSummary' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Staff]
+      operationId: addStaff
+      summary: Add a staff member
+      description: |
+        Owner only. Links the account with `email`, or creates one without a
+        password and sends an invite. The owner may add themselves. Adding a
+        previously removed staff member restores the same staff row, so their
+        earlier bookings stay linked. Emits `AccessGranted`.
+      parameters:
+        - $ref: '#/components/parameters/BusinessId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name, email]
+              properties:
+                name:
+                  $ref: '#/components/schemas/PersonName'
+                  description: Used only when a new account is created.
+                email: { $ref: '#/components/schemas/Email' }
+      responses:
+        '201':
+          description: Staff member added (or restored).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Staff' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`AlreadyStaff`: the account is already staff in this business. Nothing changes.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /v1/staff/{staffId}/remove:
+    post:
+      tags: [Staff]
+      operationId: removeStaff
+      summary: Remove a staff member (R6)
+      description: |
+        Owner only. Confirmed bookings that have not started use the confirm
+        pattern; on confirmation they are cancelled with reason `StaffRemoved`.
+        Sets `removedAt`; the row is kept. Takes the staff lock (ADR 0002). A
+        POST action rather than DELETE because it takes a confirmation body.
+      parameters:
+        - $ref: '#/components/parameters/StaffId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                confirm: { $ref: '#/components/schemas/Confirm' }
+      responses:
+        '200':
+          description: Staff member removed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Staff' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/ConfirmationRequired' }
+
+  /v1/staff/{staffId}/services:
+    put:
+      tags: [Staff]
+      operationId: setStaffServices
+      summary: Replace the services a staff member performs
+      description: |
+        Owner only. Every service must belong to the staff member's business
+        (otherwise 400). Existing bookings are unaffected.
+      parameters:
+        - $ref: '#/components/parameters/StaffId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [serviceIds]
+              properties:
+                serviceIds:
+                  type: array
+                  uniqueItems: true
+                  items: { $ref: '#/components/schemas/Id' }
+      responses:
+        '200':
+          description: The new set of assigned services.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [serviceIds]
+                properties:
+                  serviceIds:
+                    type: array
+                    items: { $ref: '#/components/schemas/Id' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------- Availability
+  # Staff may use these for their own staff row; the owner for any staff member
+  # in the business. Changes that might affect bookings take the staff lock.
+  /v1/staff/{staffId}/weekly-availability:
+    get:
+      tags: [Availability]
+      operationId: getWeeklyAvailability
+      summary: A staff member's weekly availability (R8)
+      parameters:
+        - $ref: '#/components/parameters/StaffId'
+      responses:
+        '200':
+          description: The weekly availability.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WeeklyAvailability' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Availability]
+      operationId: setWeeklyAvailability
+      summary: Replace a staff member's weekly availability (R6, R8)
+      description: |
+        Replaces the whole week. Bookings that have not started and would fall
+        outside the new availability (on dates without a date exception) use
+        the confirm pattern; on confirmation they are cancelled with reason
+        `AvailabilityChanged`.
+      parameters:
+        - $ref: '#/components/parameters/StaffId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WeeklyAvailability'
+                - type: object
+                  properties:
+                    confirm: { $ref: '#/components/schemas/Confirm' }
+      responses:
+        '200':
+          description: Saved weekly availability.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WeeklyAvailability' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/ConfirmationRequired' }
+
+  /v1/staff/{staffId}/date-exceptions:
+    get:
+      tags: [Availability]
+      operationId: listDateExceptions
+      summary: A staff member's date exceptions (R8)
+      parameters:
+        - $ref: '#/components/parameters/StaffId'
+        - name: from
+          in: query
+          description: Local date, inclusive.
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          description: Local date, inclusive.
+          schema: { type: string, format: date }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: A page of date exceptions, ordered by date.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageBase'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/DateException' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/staff/{staffId}/date-exceptions/{date}:
+    put:
+      tags: [Availability]
+      operationId: setDateException
+      summary: Set a date exception (R6, R8)
+      description: |
+        Replaces that date's availability entirely: either different hours or
+        none. Bookings that have not started and would fall outside it use the
+        confirm pattern; on confirmation they are cancelled with reason
+        `AvailabilityChanged`.
+      parameters:
+        - $ref: '#/components/parameters/StaffId'
+        - $ref: '#/components/parameters/LocalDate'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  additionalProperties: false
+                  required: [unavailable]
+                  properties:
+                    unavailable: { const: true }
+                    confirm: { $ref: '#/components/schemas/Confirm' }
+                - type: object
+                  additionalProperties: false
+                  required: [ranges]
+                  properties:
+                    ranges:
+                      type: array
+                      minItems: 1
+                      description: Non-overlapping local time ranges.
+                      items: { $ref: '#/components/schemas/LocalTimeRange' }
+                    confirm: { $ref: '#/components/schemas/Confirm' }
+      responses:
+        '200':
+          description: Saved date exception.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DateException' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/ConfirmationRequired' }
+    delete:
+      tags: [Availability]
+      operationId: deleteDateException
+      summary: Remove a date exception (R6, R8)
+      description: |
+        The date goes back to the weekly availability, which can also leave
+        bookings outside availability, so this uses the confirm pattern too.
+        Because DELETE has no body, the confirmation is sent as the
+        `confirmAffectedBookingIds` query parameter.
+      parameters:
+        - $ref: '#/components/parameters/StaffId'
+        - $ref: '#/components/parameters/LocalDate'
+        - name: confirmAffectedBookingIds
+          in: query
+          description: The affected booking IDs from the 409 response, comma-separated.
+          style: form
+          explode: false
+          schema:
+            type: array
+            minItems: 1
+            items: { $ref: '#/components/schemas/Id' }
+      responses:
+        '204': { description: Date exception removed. }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/ConfirmationRequired' }
+
+  /v1/staff/{staffId}/time-off:
+    get:
+      tags: [Availability]
+      operationId: listTimeOff
+      summary: A staff member's time off
+      parameters:
+        - $ref: '#/components/parameters/StaffId'
+        - $ref: '#/components/parameters/FromUtc'
+        - $ref: '#/components/parameters/ToUtc'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: A page of time off, ordered by start.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageBase'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/TimeOff' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Availability]
+      operationId: createTimeOff
+      summary: Block time off (R6)
+      description: |
+        Overlapping Confirmed bookings use the confirm pattern; on confirmation
+        they are cancelled with reason `TimeOff`. Buffers are part of this
+        check: a booking overlaps if its blocked interval (start minus its
+        before-buffer to end plus its after-buffer, R1) overlaps the time off.
+      parameters:
+        - $ref: '#/components/parameters/StaffId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [startUtc, endUtc]
+              properties:
+                startUtc: { $ref: '#/components/schemas/UtcTimestamp' }
+                endUtc:
+                  $ref: '#/components/schemas/UtcTimestamp'
+                  description: Exclusive; must be after startUtc.
+                confirm: { $ref: '#/components/schemas/Confirm' }
+      responses:
+        '201':
+          description: Time off saved.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TimeOff' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/ConfirmationRequired' }
+
+  /v1/time-off/{timeOffId}:
+    delete:
+      tags: [Availability]
+      operationId: deleteTimeOff
+      summary: Remove time off
+      description: Cannot affect bookings, so no confirmation is needed.
+      parameters:
+        - name: timeOffId
+          in: path
+          required: true
+          schema: { $ref: '#/components/schemas/Id' }
+      responses:
+        '204': { description: Time off removed. }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------- Bookings
+  /v1/bookings:
+    post:
+      tags: [Bookings]
+      operationId: createBooking
+      summary: Book a slot
+      description: |
+        - Without `customerEmail`, the caller books for themselves.
+        - `customerEmail` may be set only by the owner (any staff member in the
+          business) or staff (with themselves as `staffId`); otherwise 403. It
+          must belong to an existing account (otherwise 422 `CustomerNotFound`).
+        - `startUtc` must be a start that slot generation would offer for this
+          staff member and service (R8); otherwise 422 `SlotUnavailable`.
+        - `overrideMinimumNotice` is allowed for the owner and for staff booking
+          with themselves as `staffId`; otherwise 403. It bypasses only R3 (R1,
+          R8 and "not in the past" still apply) and is recorded in history.
+        - If the booking's customer holds a Confirmed booking with this business
+          that starts inside the cancellation window, the confirm pattern
+          applies (R4): `details.affectedBookings` lists those bookings. On
+          confirmation the new booking is made, the originals are kept, and
+          their staff member and the owner are notified.
+        - Buffers are snapshotted from the service (ADR 0004). Runs under the
+          staff lock (ADR 0002).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [serviceId, staffId, startUtc]
+              properties:
+                serviceId: { $ref: '#/components/schemas/Id' }
+                staffId: { $ref: '#/components/schemas/Id' }
+                startUtc: { $ref: '#/components/schemas/UtcTimestamp' }
+                customerEmail: { $ref: '#/components/schemas/Email' }
+                overrideMinimumNotice: { type: boolean, default: false }
+                confirm: { $ref: '#/components/schemas/Confirm' }
+      responses:
+        '201':
+          description: Booking created (Confirmed).
+          headers:
+            Location:
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Booking' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/SlotConflictOrConfirmation' }
+        '422':
+          description: '`MinimumNotice` (R3), `SlotUnavailable` (R8), `StaffNotAssignedToService` or `CustomerNotFound`.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example:
+                code: MinimumNotice
+                message: This slot is too soon to book.
+                rule: R3
+                details: { minNoticeMinutes: 120 }
+
+  /v1/bookings/{bookingId}:
+    get:
+      tags: [Bookings]
+      operationId: getBooking
+      summary: A booking
+      description: The booking's customer, its staff member, or the business's owner; otherwise 404.
+      parameters:
+        - $ref: '#/components/parameters/BookingId'
+      responses:
+        '200':
+          description: The booking.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Booking' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/bookings/{bookingId}/history:
+    get:
+      tags: [Bookings]
+      operationId: getBookingHistory
+      summary: A booking's history (R3, ADR 0003)
+      description: |
+        Creation (with who made it), reschedules and minimum-notice overrides,
+        oldest first. Visible to the booking's customer, its staff member and
+        the owner. `actor.userId` is returned only to staff and owners.
+      parameters:
+        - $ref: '#/components/parameters/BookingId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: A page of history entries.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageBase'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/BookingHistoryEntry' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/bookings/{bookingId}/cancel:
+    post:
+      tags: [Bookings]
+      operationId: cancelBooking
+      summary: Cancel a booking (R4)
+      description: |
+        The customer (outside the cancellation window, inclusive of exactly N
+        hours before), the booking's staff member, or the owner. The reason is
+        `CustomerCancelled` when the caller is the booking's customer, otherwise
+        `BusinessCancelled`. Pending reminders are deleted (R9).
+      parameters:
+        - $ref: '#/components/parameters/BookingId'
+      responses:
+        '200':
+          description: Booking cancelled.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Booking' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422':
+          description: '`CancellationWindowPassed` (R4, customer only) or `BookingCancelled`.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example:
+                code: CancellationWindowPassed
+                message: This booking can no longer be cancelled.
+                rule: R4
+                details: { cancellationWindowHours: 24 }
+
+  /v1/bookings/{bookingId}/reschedule:
+    post:
+      tags: [Bookings]
+      operationId: rescheduleBooking
+      summary: Move a booking to a new slot (R5)
+      description: |
+        Same service; the booking keeps its ID and the move is recorded in
+        history (ADR 0003). Runs in one transaction under the staff lock
+        (ADR 0002); on any failure the booking keeps its original slot.
+        - Customer: outside the cancellation window (R4), same staff member only
+          (`staffId` omitted or equal to the current one, otherwise 403).
+        - Staff: their own booking, to a slot of their own.
+        - Owner: any booking in the business, to any staff member.
+        - R3 and R8 apply to the new slot. `overrideMinimumNotice` is allowed
+          for the owner, and for staff when the booking is theirs both before
+          and after the move; otherwise 403.
+        - Buffers are snapshotted again from the service (ADR 0004); pending
+          reminders move to the new start (R9).
+      parameters:
+        - $ref: '#/components/parameters/BookingId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [startUtc]
+              properties:
+                startUtc: { $ref: '#/components/schemas/UtcTimestamp' }
+                staffId:
+                  $ref: '#/components/schemas/Id'
+                  description: Defaults to the booking's current staff member.
+                overrideMinimumNotice: { type: boolean, default: false }
+      responses:
+        '200':
+          description: Booking rescheduled.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Booking' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/SlotConflict' }
+        '422':
+          description: |
+            `CancellationWindowPassed` (R4, customer only), `MinimumNotice` (R3),
+            `SlotUnavailable` (R8), `StaffNotAssignedToService` or
+            `BookingCancelled`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    BusinessId:
+      name: businessId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
+    ServiceId:
+      name: serviceId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
+    StaffId:
+      name: staffId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
+    BookingId:
+      name: bookingId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
+    LocalDate:
+      name: date
+      in: path
+      required: true
+      description: Local date in the business's time zone.
+      schema: { type: string, format: date }
+    BookingStatus:
+      name: status
+      in: query
+      schema: { $ref: '#/components/schemas/BookingStatus' }
+    FromUtc:
+      name: from
+      in: query
+      description: Only items whose start is at or after this time.
+      schema: { $ref: '#/components/schemas/UtcTimestamp' }
+    ToUtc:
+      name: to
+      in: query
+      description: Only items whose start is before this time (exclusive).
+      schema: { $ref: '#/components/schemas/UtcTimestamp' }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+    Cursor:
+      name: cursor
+      in: query
+      description: Opaque cursor from a previous page's `nextCursor`.
+      schema: { type: string }
+
+  responses:
+    ValidationFailed:
+      description: '`ValidationFailed`: malformed request or failed validation. `details` may name the invalid fields.'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthenticated:
+      description: '`Unauthenticated`: no valid token.'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: '`Forbidden`: the caller can view the resource but may not perform this action.'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: '`NotFound`: the resource does not exist, or the caller may not view it.'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    SlotConflict:
+      description: |
+        `SlotConflict` (R7): the time, buffers included (R1), overlaps another
+        active booking for that staff member. `details` is the conflicting
+        interval only (staff member, start and end); it never includes the
+        other booking's ID or customer.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            code: SlotConflict
+            message: That time is no longer available.
+            rule: R7
+            details:
+              staffId: 6f1c1a52-6a3e-4d55-9d8e-2b8f0c7d1e11
+              startUtc: '2026-11-20T19:00:00Z'
+              endUtc: '2026-11-20T20:00:00Z'
+    ConfirmationRequired:
+      description: |
+        `ConfirmationRequired`: nothing has changed. `details.affectedBookings`
+        lists the bookings the change would affect. Send the same request again
+        with `confirm.affectedBookingIds` to go ahead.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            code: ConfirmationRequired
+            message: This change cancels 1 booking.
+            rule: R6
+            details:
+              affectedBookings:
+                - bookingId: 0b7e2f8a-3c1d-4e6f-9a2b-5c8d7e6f1a20
+                  staffId: 6f1c1a52-6a3e-4d55-9d8e-2b8f0c7d1e11
+                  startUtc: '2026-11-20T19:00:00Z'
+                  endUtc: '2026-11-20T20:00:00Z'
+    SlotConflictOrConfirmation:
+      description: |
+        `SlotConflict` (R7; see the SlotConflict response) or
+        `ConfirmationRequired` (R4; see the ConfirmationRequired response).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    # ------------------------------------------------------------ Primitives
+    Id:
+      type: string
+      format: uuid
+    UtcTimestamp:
+      description: RFC 3339 timestamp in UTC, always with a Z suffix.
+      type: string
+      format: date-time
+      pattern: 'Z$'
+    IanaTimeZone:
+      description: IANA time zone name, e.g. Europe/London (R2). Unknown names give 400.
+      type: string
+      minLength: 1
+      examples: [Europe/London]
+    LocalTime:
+      description: Local time of day in the business's time zone, 24-hour HH:mm.
+      type: string
+      pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+    Email:
+      type: string
+      format: email
+      maxLength: 254
+    Password:
+      type: string
+      minLength: 8
+      maxLength: 128
+    PersonName:
+      type: string
+      minLength: 1
+      maxLength: 200
+    BusinessName:
+      type: string
+      minLength: 1
+      maxLength: 200
+    ServiceName:
+      type: string
+      minLength: 1
+      maxLength: 200
+    ServiceDescription:
+      description: Optional text shown to customers. Send null to clear it.
+      type: [string, 'null']
+      maxLength: 2000
+    DurationMinutes:
+      type: integer
+      minimum: 1
+    BufferMinutes:
+      type: integer
+      minimum: 0
+    Price:
+      description: Display only; payments are a non-goal.
+      type: string
+      pattern: '^[0-9]+(\.[0-9]{1,2})?$'
+      examples: ['45.00']
+    MinNoticeMinutes:
+      description: Minimum notice period (R3). Default 120.
+      type: integer
+      minimum: 0
+    CancellationWindowHours:
+      description: Cancellation window N (R4). Default 24.
+      type: integer
+      minimum: 0
+    MaxAdvanceDays:
+      description: Maximum advance-booking window (R8). Default 21; no upper limit (ADR 0005).
+      type: integer
+      minimum: 1
+    SlotStepMinutes:
+      description: Slot step (R8). Default 30.
+      type: integer
+      minimum: 1
+
+    # ------------------------------------------------------------ Errors
+    ErrorCode:
+      type: string
+      enum:
+        - ValidationFailed
+        - RangeTooLong
+        - InviteInvalid
+        - Unauthenticated
+        - InvalidCredentials
+        - Forbidden
+        - NotFound
+        - SlotConflict
+        - ConfirmationRequired
+        - EmailTaken
+        - AlreadyOwner
+        - AlreadyStaff
+        - InviteNotPending
+        - MinimumNotice
+        - CancellationWindowPassed
+        - SlotUnavailable
+        - StaffNotAssignedToService
+        - BookingCancelled
+        - CustomerNotFound
+    Error:
+      type: object
+      required: [code, message, rule, details]
+      properties:
+        code: { $ref: '#/components/schemas/ErrorCode' }
+        message:
+          type: string
+          description: Human-readable; clients should branch on `code`, not this.
+        rule:
+          description: Business rule ID (e.g. R3), or null for errors that are not business rules.
+          type: [string, 'null']
+          pattern: '^R[0-9]+$'
+        details:
+          description: |
+            Code-specific data, or an empty object:
+            - `SlotConflict`: `{ staffId, startUtc, endUtc }` (a Slot)
+            - `ConfirmationRequired`: `{ affectedBookings: AffectedBooking[] }`
+            - `MinimumNotice`: `{ minNoticeMinutes }`
+            - `CancellationWindowPassed`: `{ cancellationWindowHours }`
+            - `RangeTooLong`: `{ maxDays: 30 }`
+            - `ValidationFailed`: `{ fields: { <name>: <problem> } }`
+          type: object
+    AffectedBooking:
+      type: object
+      required: [bookingId, staffId, startUtc, endUtc]
+      properties:
+        bookingId: { $ref: '#/components/schemas/Id' }
+        staffId: { $ref: '#/components/schemas/Id' }
+        startUtc: { $ref: '#/components/schemas/UtcTimestamp' }
+        endUtc: { $ref: '#/components/schemas/UtcTimestamp' }
+    Confirm:
+      description: Confirms the bookings shown in a previous 409 `ConfirmationRequired`.
+      type: object
+      additionalProperties: false
+      required: [affectedBookingIds]
+      properties:
+        affectedBookingIds:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: { $ref: '#/components/schemas/Id' }
+
+    # ------------------------------------------------------------ Pagination
+    PageBase:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items: { type: array }
+        nextCursor:
+          description: Pass as `cursor` to get the next page; null on the last page.
+          type: [string, 'null']
+
+    # ------------------------------------------------------------ Auth
+    AuthToken:
+      type: object
+      required: [accessToken, tokenType, expiresAt]
+      properties:
+        accessToken: { type: string }
+        tokenType: { const: Bearer }
+        expiresAt: { $ref: '#/components/schemas/UtcTimestamp' }
+    Me:
+      type: object
+      required: [id, email, name, timeZone, isAdmin, ownedBusinessId, staff]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        email: { $ref: '#/components/schemas/Email' }
+        name: { $ref: '#/components/schemas/PersonName' }
+        timeZone: { $ref: '#/components/schemas/IanaTimeZone' }
+        isAdmin: { type: boolean }
+        ownedBusinessId:
+          oneOf:
+            - $ref: '#/components/schemas/Id'
+            - type: 'null'
+        staff:
+          description: The caller's active (not removed) staff rows.
+          type: array
+          items:
+            type: object
+            required: [staffId, businessId]
+            properties:
+              staffId: { $ref: '#/components/schemas/Id' }
+              businessId: { $ref: '#/components/schemas/Id' }
+
+    # ------------------------------------------------------------ Businesses
+    Business:
+      type: object
+      required:
+        - id
+        - name
+        - timeZone
+        - minNoticeMinutes
+        - cancellationWindowHours
+        - maxAdvanceDays
+        - slotStepMinutes
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        name: { $ref: '#/components/schemas/BusinessName' }
+        timeZone: { $ref: '#/components/schemas/IanaTimeZone' }
+        minNoticeMinutes: { $ref: '#/components/schemas/MinNoticeMinutes' }
+        cancellationWindowHours: { $ref: '#/components/schemas/CancellationWindowHours' }
+        maxAdvanceDays: { $ref: '#/components/schemas/MaxAdvanceDays' }
+        slotStepMinutes: { $ref: '#/components/schemas/SlotStepMinutes' }
+    TimeZoneChange:
+      type: object
+      required: [businessId, oldTimeZone, newTimeZone, changedBy, changedAt]
+      properties:
+        businessId: { $ref: '#/components/schemas/Id' }
+        oldTimeZone: { $ref: '#/components/schemas/IanaTimeZone' }
+        newTimeZone: { $ref: '#/components/schemas/IanaTimeZone' }
+        changedBy:
+          $ref: '#/components/schemas/Id'
+          description: User ID of the owner who made the change.
+        changedAt: { $ref: '#/components/schemas/UtcTimestamp' }
+
+    # ------------------------------------------------------------ Services
+    Service:
+      type: object
+      required: [id, businessId, name, description, durationMinutes, bufferBeforeMinutes, bufferAfterMinutes, price]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        businessId: { $ref: '#/components/schemas/Id' }
+        name: { $ref: '#/components/schemas/ServiceName' }
+        description: { $ref: '#/components/schemas/ServiceDescription' }
+        durationMinutes: { $ref: '#/components/schemas/DurationMinutes' }
+        bufferBeforeMinutes: { $ref: '#/components/schemas/BufferMinutes' }
+        bufferAfterMinutes: { $ref: '#/components/schemas/BufferMinutes' }
+        price: { $ref: '#/components/schemas/Price' }
+    ServiceDetail:
+      allOf:
+        - $ref: '#/components/schemas/Service'
+        - type: object
+          required: [staff]
+          properties:
+            staff:
+              description: Assigned staff who are not removed.
+              type: array
+              items: { $ref: '#/components/schemas/StaffSummary' }
+
+    # ------------------------------------------------------------ Staff
+    StaffSummary:
+      type: object
+      required: [staffId, name]
+      properties:
+        staffId: { $ref: '#/components/schemas/Id' }
+        name:
+          description: The staff member's display name.
+          type: string
+    Staff:
+      type: object
+      required: [staffId, businessId, userId, name, removedAt]
+      properties:
+        staffId: { $ref: '#/components/schemas/Id' }
+        businessId: { $ref: '#/components/schemas/Id' }
+        userId: { $ref: '#/components/schemas/Id' }
+        name: { type: string }
+        removedAt:
+          oneOf:
+            - $ref: '#/components/schemas/UtcTimestamp'
+            - type: 'null'
+
+    # ------------------------------------------------------------ Availability
+    DayOfWeek:
+      type: string
+      enum: [Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday]
+    LocalTimeRange:
+      description: Half-open local time range [startLocal, endLocal); endLocal after startLocal.
+      type: object
+      additionalProperties: false
+      required: [startLocal, endLocal]
+      properties:
+        startLocal: { $ref: '#/components/schemas/LocalTime' }
+        endLocal: { $ref: '#/components/schemas/LocalTime' }
+    WeeklyAvailability:
+      type: object
+      required: [blocks]
+      properties:
+        blocks:
+          description: |
+            Availability blocks. Blocks on the same day cannot overlap. An empty
+            list means no weekly availability. Slot steps are counted from the
+            start of each block (R8).
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [dayOfWeek, startLocal, endLocal]
+            properties:
+              dayOfWeek: { $ref: '#/components/schemas/DayOfWeek' }
+              startLocal: { $ref: '#/components/schemas/LocalTime' }
+              endLocal: { $ref: '#/components/schemas/LocalTime' }
+    DateException:
+      description: |
+        Replaces the weekly availability for `date` (R8). Either `unavailable`
+        is true and `ranges` is empty, or `unavailable` is false and `ranges`
+        has at least one range.
+      type: object
+      required: [date, unavailable, ranges]
+      properties:
+        date: { type: string, format: date }
+        unavailable: { type: boolean }
+        ranges:
+          type: array
+          items: { $ref: '#/components/schemas/LocalTimeRange' }
+    TimeOff:
+      type: object
+      required: [id, staffId, startUtc, endUtc]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        staffId: { $ref: '#/components/schemas/Id' }
+        startUtc: { $ref: '#/components/schemas/UtcTimestamp' }
+        endUtc: { $ref: '#/components/schemas/UtcTimestamp' }
+
+    # ------------------------------------------------------------ Slots and bookings
+    Slot:
+      description: A staff member and a half-open interval [startUtc, endUtc), excluding buffers.
+      type: object
+      required: [staffId, startUtc, endUtc]
+      properties:
+        staffId: { $ref: '#/components/schemas/Id' }
+        startUtc: { $ref: '#/components/schemas/UtcTimestamp' }
+        endUtc: { $ref: '#/components/schemas/UtcTimestamp' }
+    BookingStatus:
+      type: string
+      enum: [Confirmed, Cancelled]
+    CancellationReason:
+      type: string
+      enum: [CustomerCancelled, BusinessCancelled, TimeOff, AvailabilityChanged, StaffRemoved]
+    Booking:
+      description: |
+        Times are UTC. Clients show them in both the business's and the
+        customer's time zones (R2); elapsed duration is endUtc - startUtc, which
+        can differ from the local clock difference across a DST transition.
+      type: object
+      required:
+        - id
+        - businessId
+        - businessTimeZone
+        - serviceId
+        - staffId
+        - customer
+        - startUtc
+        - endUtc
+        - status
+        - cancelledAt
+        - cancellationReason
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        businessId: { $ref: '#/components/schemas/Id' }
+        businessTimeZone: { $ref: '#/components/schemas/IanaTimeZone' }
+        serviceId: { $ref: '#/components/schemas/Id' }
+        staffId: { $ref: '#/components/schemas/Id' }
+        customer:
+          type: object
+          required: [userId, name, email]
+          properties:
+            userId: { $ref: '#/components/schemas/Id' }
+            name: { type: string }
+            email: { $ref: '#/components/schemas/Email' }
+        startUtc: { $ref: '#/components/schemas/UtcTimestamp' }
+        endUtc: { $ref: '#/components/schemas/UtcTimestamp' }
+        status: { $ref: '#/components/schemas/BookingStatus' }
+        cancelledAt:
+          oneOf:
+            - $ref: '#/components/schemas/UtcTimestamp'
+            - type: 'null'
+        cancellationReason:
+          oneOf:
+            - $ref: '#/components/schemas/CancellationReason'
+            - type: 'null'
+    BookingPage:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          properties:
+            items:
+              type: array
+              items: { $ref: '#/components/schemas/Booking' }
+    BookingHistoryEntry:
+      type: object
+      required: [type, at, actor, minimumNoticeOverridden, slot]
+      properties:
+        type:
+          type: string
+          enum: [Created, Rescheduled]
+        at: { $ref: '#/components/schemas/UtcTimestamp' }
+        actor:
+          type: object
+          required: [role, name]
+          properties:
+            role:
+              type: string
+              enum: [Owner, Staff, Customer]
+            name:
+              description: The person's display name.
+              type: string
+            userId:
+              $ref: '#/components/schemas/Id'
+              description: Returned only when the caller is staff or the owner.
+        minimumNoticeOverridden:
+          description: True if this creation or reschedule used the R3 override.
+          type: boolean
+        previousSlot:
+          description: For `Rescheduled` only, the slot before the move.
+          $ref: '#/components/schemas/Slot'
+        slot:
+          description: The slot after this change.
+          $ref: '#/components/schemas/Slot'

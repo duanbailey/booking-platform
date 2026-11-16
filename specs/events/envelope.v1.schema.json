@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Event envelope",
+  "description": "Every event is wrapped in this envelope. Each event schema constrains eventType, schemaVersion and data.",
+  "type": "object",
+  "required": ["eventId", "eventType", "schemaVersion", "occurredAt", "correlationId", "data"],
+  "properties": {
+    "eventId": {
+      "description": "Unique per event. Consumers use it to discard duplicates (SQS delivers at least once).",
+      "$ref": "common.v1.schema.json#/$defs/id"
+    },
+    "eventType": { "type": "string" },
+    "schemaVersion": { "type": "integer", "minimum": 1 },
+    "occurredAt": { "$ref": "common.v1.schema.json#/$defs/utcTimestamp" },
+    "correlationId": {
+      "description": "Correlation ID of the request that caused the event, carried into the worker's logs (specs/07-nfr.md).",
+      "type": "string",
+      "minLength": 1
+    },
+    "data": { "type": "object" }
+  }
+}

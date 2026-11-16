@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BookingLocalTimeChanged v1",
+  "description": "Emitted for each booking that has not started, survives a business time zone change, and now falls at a different local time in the business's time zone (R2). The booking's UTC times are unchanged.",
+  "allOf": [{ "$ref": "envelope.v1.schema.json" }],
+  "properties": {
+    "eventType": { "const": "BookingLocalTimeChanged" },
+    "schemaVersion": { "const": 1 },
+    "data": {
+      "type": "object",
+      "required": ["bookingId", "businessId", "customerId", "slot", "oldTimeZone", "newTimeZone", "timeZoneChangeId"],
+      "additionalProperties": false,
+      "properties": {
+        "bookingId": { "$ref": "common.v1.schema.json#/$defs/id" },
+        "businessId": { "$ref": "common.v1.schema.json#/$defs/id" },
+        "customerId": { "$ref": "common.v1.schema.json#/$defs/id" },
+        "slot": { "$ref": "common.v1.schema.json#/$defs/slot" },
+        "oldTimeZone": { "$ref": "common.v1.schema.json#/$defs/ianaTimeZone" },
+        "newTimeZone": { "$ref": "common.v1.schema.json#/$defs/ianaTimeZone" },
+        "timeZoneChangeId": {
+          "description": "Row in time_zone_changes that caused this event.",
+          "$ref": "common.v1.schema.json#/$defs/id"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BookingCancelled v1",
+  "allOf": [{ "$ref": "envelope.v1.schema.json" }],
+  "properties": {
+    "eventType": { "const": "BookingCancelled" },
+    "schemaVersion": { "const": 1 },
+    "data": {
+      "type": "object",
+      "required": ["bookingId", "bookingVersion", "businessId", "businessTimeZone", "serviceId", "customerId", "slot", "cancelledBy", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "bookingId": { "$ref": "common.v1.schema.json#/$defs/id" },
+        "bookingVersion": { "type": "integer", "minimum": 1 },
+        "businessId": { "$ref": "common.v1.schema.json#/$defs/id" },
+        "businessTimeZone": { "$ref": "common.v1.schema.json#/$defs/ianaTimeZone" },
+        "serviceId": { "$ref": "common.v1.schema.json#/$defs/id" },
+        "customerId": { "$ref": "common.v1.schema.json#/$defs/id" },
+        "slot": { "$ref": "common.v1.schema.json#/$defs/slot" },
+        "cancelledBy": { "$ref": "common.v1.schema.json#/$defs/actor" },
+        "reason": { "enum": ["CustomerCancelled", "BusinessCancelled", "TimeOff", "AvailabilityChanged", "StaffRemoved"] }
+      }
+    }
+  }
+}
