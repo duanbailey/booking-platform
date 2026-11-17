@@ -26,7 +26,7 @@ public class SchemaTests(TestDatabase database) : IClassFixture<TestDatabase>
     {
         string[] tables =
         [
-            "users", "user_invites", "platform_admins", "businesses", "services", "staff", "staff_services",
+            "users", "user_invites", "refresh_tokens", "platform_admins", "businesses", "services", "staff", "staff_services",
             "availability_rules", "availability_exceptions", "time_off", "time_zone_changes", "outbox",
             "bookings", "notifications", "booking_history",
         ];

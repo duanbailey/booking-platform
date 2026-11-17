@@ -27,6 +27,21 @@ public class UserInvite
     public DateTime CreatedAt { get; set; }
 }
 
+/// <summary>A refresh token for a login session (ADR 0010). Only the token's SHA-256 hash is stored.</summary>
+public class RefreshToken
+{
+    public Guid Id { get; set; }
+    public Guid UserId { get; set; }
+    /// <summary>Groups the tokens from one login and its refreshes; not a foreign key.</summary>
+    public Guid FamilyId { get; set; }
+    public required string TokenHash { get; set; }
+    public DateTime ExpiresAt { get; set; }
+    public DateTime CreatedAt { get; set; }
+    /// <summary>Set when the token is exchanged; presenting it again revokes the family.</summary>
+    public DateTime? UsedAt { get; set; }
+    public DateTime? RevokedAt { get; set; }
+}
+
 public class PlatformAdmin
 {
     public Guid UserId { get; set; }

@@ -91,6 +91,22 @@ public sealed class Sql(string connectionString)
         return id;
     }
 
+    public Task RemoveStaffAsync(Guid staffId) =>
+        ExecuteAsync("UPDATE staff SET removed_at = @now WHERE id = @staffId", new { staffId, now = Now });
+
+    /// <summary>Grants admin as the bootstrap admin (granted_by null).</summary>
+    public Task InsertAdminAsync(Guid userId) =>
+        ExecuteAsync("INSERT INTO platform_admins (user_id, granted_by, granted_at) VALUES (@userId, NULL, @now)",
+            new { userId, now = Now });
+
+    /// <summary>Inserts a Confirmed booking with <see cref="BookingParameters"/> and returns its ID.</summary>
+    public async Task<Guid> InsertBookingAsync(BookingFixture fixture)
+    {
+        var parameters = BookingParameters(fixture);
+        await ExecuteAsync(InsertBookingSql, parameters);
+        return (Guid)parameters["id"]!;
+    }
+
     public sealed record BookingFixture(Guid BusinessId, Guid StaffId, Guid ServiceId, Guid CustomerId);
 
     public async Task<BookingFixture> InsertBookingFixtureAsync()

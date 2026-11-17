@@ -1,7 +1,10 @@
 # Conventions
-# Auth: JWT bearer token carrying the user's ID. Roles (owner, staff, customer,
-#   admin) are not claims; they are worked out per request from the data
-#   (specs/07-nfr.md).
+# Auth: JWT bearer token carrying the user's ID, valid for 15 minutes, renewed
+#   with a rotating 30-day refresh token (ADR 0010). Roles (owner, staff,
+#   customer, admin) are not claims; they are worked out per request from the
+#   data (specs/07-nfr.md).
+# Correlation: every response carries X-Correlation-Id; a valid one sent by the
+#   client is reused, otherwise the API generates one (specs/07-nfr.md).
 # IDs: UUIDs
 # Timestamps: ISO 8601 in UTC (2026-11-20T19:00:00Z). Local dates and times
 #   (availability, slot query ranges) are in the business's IANA time zone (R2).
@@ -23,8 +26,9 @@ info:
     ## Status codes
     - **400** Malformed request or failed validation (`ValidationFailed`,
       `RangeTooLong`, `InviteInvalid`).
-    - **401** No valid token (`Unauthenticated`), or bad login credentials
-      (`InvalidCredentials`).
+    - **401** No valid token (`Unauthenticated`), bad login credentials
+      (`InvalidCredentials`), or a refresh token that is unknown, expired, used
+      or revoked (`InvalidRefreshToken`, ADR 0010).
     - **403** The caller can view the resource but may not perform the action.
     - **404** The resource does not exist, or the caller may not view it. The API
       never reveals that a resource the caller may not view exists.
@@ -33,6 +37,14 @@ info:
     - **422** Business-rule refusal: `InviteNotPending`, `MinimumNotice` (R3),
       `CancellationWindowPassed` (R4), `SlotUnavailable` (R8),
       `StaffNotAssignedToService`, `BookingCancelled`, `CustomerNotFound`.
+    - **Other 4xx** `RequestRejected`: the request was refused at the HTTP level
+      before reaching an operation, with the matching status: 405 (method not
+      allowed), 406 (not acceptable), 408 (request timeout), 413 (body too
+      large), 415 (unsupported media type, send `application/json`), 431
+      (headers too large).
+    - **500** `InternalError`: an unexpected failure. The message is generic and
+      never includes exception details; quote the `X-Correlation-Id` response
+      header when reporting it.
 
     ## Confirm-before-acting (R2, R4, R6)
     Time off, weekly availability, date exceptions, time zone changes and staff
@@ -169,6 +181,69 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+
+  /v1/auth/refresh:
+    post:
+      tags: [Auth]
+      operationId: refreshToken
+      summary: Exchange a refresh token for new tokens
+      description: |
+        Rotates the refresh token (ADR 0010): the presented token is retired and
+        a new access token and refresh token are returned. The new refresh token
+        is valid for 30 days from now. Presenting a retired token again revokes
+        every token from that login, and the user must log in again.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string, minLength: 1 }
+      responses:
+        '200':
+          description: New tokens.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthToken' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401':
+          description: |
+            `InvalidRefreshToken`: the token is unknown, expired, already used or
+            revoked (the response does not say which).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /v1/auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logout
+      summary: Log out
+      description: |
+        Revokes every refresh token from the login the presented token belongs
+        to (ADR 0010). Needs no access token, so a client whose access token has
+        expired can still log out. Returns 204 even for an unknown, expired or
+        revoked token. Access tokens already issued stay valid until they expire
+        (at most 15 minutes).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string, minLength: 1 }
+      responses:
+        '204':
+          description: Logged out.
+        '400': { $ref: '#/components/responses/ValidationFailed' }
 
   /v1/me:
     get:
@@ -1391,10 +1466,12 @@ components:
       type: string
       enum:
         - ValidationFailed
+        - RequestRejected
         - RangeTooLong
         - InviteInvalid
         - Unauthenticated
         - InvalidCredentials
+        - InvalidRefreshToken
         - Forbidden
         - NotFound
         - SlotConflict
@@ -1409,6 +1486,7 @@ components:
         - StaffNotAssignedToService
         - BookingCancelled
         - CustomerNotFound
+        - InternalError
     Error:
       type: object
       required: [code, message, rule, details]
@@ -1463,12 +1541,25 @@ components:
 
     # ------------------------------------------------------------ Auth
     AuthToken:
+      description: Tokens for a login session (ADR 0010).
       type: object
-      required: [accessToken, tokenType, expiresAt]
+      required: [accessToken, tokenType, expiresAt, refreshToken, refreshTokenExpiresAt]
       properties:
-        accessToken: { type: string }
+        accessToken:
+          description: JWT for the Authorization header, valid for 15 minutes.
+          type: string
         tokenType: { const: Bearer }
-        expiresAt: { $ref: '#/components/schemas/UtcTimestamp' }
+        expiresAt:
+          description: When the access token expires.
+          $ref: '#/components/schemas/UtcTimestamp'
+        refreshToken:
+          description: |
+            Single-use token for `POST /v1/auth/refresh`. Store the newest one;
+            each refresh replaces it.
+          type: string
+        refreshTokenExpiresAt:
+          description: When the refresh token expires (30 days after it was issued).
+          $ref: '#/components/schemas/UtcTimestamp'
     Me:
       type: object
       required: [id, email, name, timeZone, isAdmin, ownedBusinessId, staff]

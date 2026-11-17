@@ -1,7 +1,8 @@
 - Slot query p95 under 300 ms. A slot query covers at most 30 days, so this is the worst case; longer ranges are rejected with HTTP 400 (see [ADR 0005](../docs/adr/0005-limit-slot-query-range.md)).
-- Auth: JWT carrying the user's ID. Roles are not claims in the token; they come from the data (see Authorization below).
+- Auth: JWT carrying the user's ID, signed with HS256 and valid for 15 minutes, renewed with a single-use refresh token valid for 30 days from issue; using a refresh token twice revokes that login (see [ADR 0010](../docs/adr/0010-refresh-token-rotation.md)). Roles are not claims in the token; they come from the data (see Authorization below).
 - Database access for auth data: the notification worker's database user may update only `token_hash` and `expires_at` on `user_invites` (see [specs/06-events.md](06-events.md)). It cannot insert or delete invites, or read or write `users.password_hash`.
-- Structured logging with correlation IDs across the C# and Node services.
+- Structured logging with correlation IDs across the C# and Node services. Logs are JSON lines on stdout (CloudWatch collects them). Every API response has an `X-Correlation-Id` header: the client's value if it sends one of 1-64 characters from `A-Z a-z 0-9 - _ .`, otherwise a new ID. It is attached to every log line for the request and becomes the `correlationId` of events the request causes (specs/06-events.md). Logs never contain passwords, tokens or token hashes.
+- Errors: every error response uses the shared `Error` shape in specs/04-api.openapi.yaml. A request refused at the HTTP level (e.g. 405, 413, 415) keeps its status with code `RequestRejected`. An unexpected failure returns 500 `InternalError` with a generic message; the exception is logged with the correlation ID, never returned.
 
 # Authorization
 

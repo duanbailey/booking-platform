@@ -17,6 +17,7 @@ public class BookingDbContext(DbContextOptions<BookingDbContext> options) : DbCo
 
     public DbSet<User> Users => Set<User>();
     public DbSet<UserInvite> UserInvites => Set<UserInvite>();
+    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<PlatformAdmin> PlatformAdmins => Set<PlatformAdmin>();
     public DbSet<Business> Businesses => Set<Business>();
     public DbSet<Service> Services => Set<Service>();
@@ -56,6 +57,15 @@ public class BookingDbContext(DbContextOptions<BookingDbContext> options) : DbCo
             e.HasIndex(x => x.TokenHash).IsUnique(); // several NULLs are allowed in a MySQL unique index
             e.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne<User>().WithMany().HasForeignKey(x => x.CreatedBy).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<RefreshToken>(e =>
+        {
+            e.ToTable("refresh_tokens"); // ADR 0010
+            e.Property(x => x.TokenHash).HasMaxLength(64); // SHA-256, hex
+            e.HasIndex(x => x.TokenHash).IsUnique();
+            e.HasIndex(x => x.FamilyId);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<PlatformAdmin>(e =>

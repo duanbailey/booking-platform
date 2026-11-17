@@ -16,6 +16,8 @@ Mark a task `[x]` when its "Done when" holds. A task that touches the schema add
 - Local AWS for tests: in-memory fakes plus a small real-AWS suite ([ADR 0007](../docs/adr/0007-aws-testing-with-fakes.md)), 2026-11-16.
 - Outbox relay hosting: background service in the API, so the API runs on ECS Fargate ([ADR 0008](../docs/adr/0008-outbox-relay-in-api.md)), 2026-11-16.
 - Infrastructure as code: Terraform, S3 state backend ([ADR 0009](../docs/adr/0009-terraform-for-infrastructure.md)), 2026-11-16.
+- Tokens: 15-minute HS256 access tokens, 30-day sliding refresh tokens with rotation and reuse detection, refresh and logout endpoints ([ADR 0010](../docs/adr/0010-refresh-token-rotation.md)), 2026-11-17.
+- Cross-cutting: `InternalError` (500) and `RequestRejected` (other HTTP-level 4xx such as 405, 413, 415; added 2026-11-17 after code review) added to the error codes; access tokens carry exactly the ADR 0010 claims; `X-Correlation-Id` header; built-in JSON console logging and DataAnnotations validation, no extra libraries, 2026-11-17.
 
 ## Decisions needed
 
@@ -31,13 +33,15 @@ None open as of 2026-11-16. If a new one comes up, add it here with the task it 
   Acceptance: data model; R2 (UTC columns, IANA time zone strings).
   Done when: migration tests check the constraints that guard business rules, e.g. a duplicate email or a second business for one owner is rejected.
 
-- [ ] **T3. API cross-cutting.** Shared error shape and codes (`Error`, `ErrorCode`), validation returning `ValidationFailed`, JWT issuing and validation, correlation IDs and structured logging (`specs/07-nfr.md`), and a role resolver that works out owner, staff, customer and admin from the data per request, with the 404-versus-403 rule.
-  Done when: tests cover the error shape for 400, 401, 403 and 404, and that a removed staff member or a user from another business gets no access.
+- [x] **T3. API cross-cutting.** Shared error shape and codes (`Error`, `ErrorCode`), validation returning `ValidationFailed`, 500 `InternalError`, JWT issuing and validation, refresh token issuing, rotation, reuse detection and revocation with the `refresh_tokens` migration (ADR 0010; endpoints in T4), correlation IDs and structured logging (`specs/07-nfr.md`), and a role resolver that works out owner, staff, customer and admin from the data per request, with the 404-versus-403 rule.
+  Done when: tests cover the error shape for 400, 401, 403, 404 and 500, an expired or tampered access token gets 401, refresh rotation and reuse detection work against MySQL, and a removed staff member or a user from another business gets no access.
+  Notes: probe endpoints that exist only in the test assemblies (`ProbeController`, `AccessProbeController`) exercise the pipeline until real endpoints arrive. Real endpoints use `AccessResolver` with `Access.Found` and `Access.Require` for the 404-versus-403 rule, and `[AllowAnonymous]` for operations with `security: []`.
 
 ## Accounts and businesses
 
-- [ ] **T4. Sign-up, login and profile.** `POST /v1/auth/register`, `POST /v1/auth/login`, `GET` and `PATCH /v1/me` (including `isAdmin`, owned business and staff rows).
-  Acceptance: stories "Customer can sign up", "Owner/Staff/Customer can log in". Login fails for an account with no password.
+- [ ] **T4. Sign-up, login and profile.** `POST /v1/auth/register`, `POST /v1/auth/login`, `POST /v1/auth/refresh`, `POST /v1/auth/logout`, `GET` and `PATCH /v1/me` (including `isAdmin`, owned business and staff rows).
+  Acceptance: stories "Customer can sign up", "Owner/Staff/Customer can log in". Login fails for an account with no password. ADR 0010 (refresh rotates, a reused token revokes the login, logout returns 204 for any token).
+  Also: add requests for these endpoints to `src/BookingPlatform.Api/BookingPlatform.Api.http` for manual testing, with the access token from login captured in a variable and reused.
 
 - [ ] **T5. Outbox writer.** Writing an event to `outbox` in the caller's transaction, using the envelope and schemas in `specs/events/`. No relay yet.
   Done when: tests show an event is written if and only if its transaction commits, and every payload validates against its JSON Schema.
@@ -116,6 +120,7 @@ None open as of 2026-11-16. If a new one comes up, add it here with the task it 
 
 - [ ] **T27. Infrastructure as code.** Terraform in `infra/` (ADR 0009). API on ECS Fargate (ADR 0008), RDS MySQL, SQS FIFO queue with a FIFO dead-letter queue and an alarm when it is not empty, worker Lambda, SES, EventBridge Scheduler, Secrets Manager, CloudWatch, and the worker's limited database user.
   Done when: one command deploys a working environment, and a booking made through the API produces a confirmation email.
+  Before the first deployment: squash the EF Core migrations into one `InitialSchema` (ADR 0006). Do it once, after every task branch is merged. Copy across any hand-written `migrationBuilder.Sql` (e.g. the worker's database user), and drop and recreate any database that applied the old migrations. The schema tests must pass afterwards. Once any environment is deployed, migrations are never squashed again.
 
 - [ ] **T28. Slot query performance.** A repeatable test that a 30-day slot query meets p95 under 300 ms (`specs/07-nfr.md`) on realistic data; fix any shortfall.
 

@@ -6,7 +6,7 @@ Outstanding spec work as of 2026-11-15. Decisions already made are recorded in `
 
 Spec work is done: events, authorization and the API (`specs/04-api.openapi.yaml`, which replaced the outline) are written, and the task plan is in `plan/tasks.md`. Decisions made on 2026-11-15 are recorded in `specs/` and `docs/adr/`.
 
-**Next:** T3 (API cross-cutting). T1 and T2 done 2026-11-16. The 2026-11-15 review below was skipped by the user and kept for reference.
+**Next:** T3 (API cross-cutting), in progress on branch `t3-api-cross-cutting`. T1 and T2 done 2026-11-16; all blocking decisions settled (ADRs 0006-0010; refresh tokens and the T3 cross-cutting choices confirmed 2026-11-17); code is on GitHub. The 2026-11-15 review below was skipped by the user and kept for reference.
 
 ## Schema choices to confirm (T2, 2026-11-16)
 
