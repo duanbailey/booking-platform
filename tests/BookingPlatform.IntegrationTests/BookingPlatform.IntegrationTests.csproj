@@ -8,6 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Corvus.Json.Validator" Version="5.8.11" />
     <PackageReference Include="coverlet.collector" Version="6.0.4" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.11" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
@@ -18,6 +19,12 @@
 
   <ItemGroup>
     <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Event schema validation and sample events, shared with the unit tests (T5). -->
+    <Compile Include="..\BookingPlatform.Api.Tests\Infrastructure\EventSchemas.cs" Link="Infrastructure\Shared\EventSchemas.cs" />
+    <Compile Include="..\BookingPlatform.Api.Tests\Infrastructure\SampleEvents.cs" Link="Infrastructure\Shared\SampleEvents.cs" />
   </ItemGroup>
 
   <ItemGroup>

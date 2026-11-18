@@ -2,6 +2,7 @@ using BookingPlatform.Api.Auth;
 using BookingPlatform.Api.Authorization;
 using BookingPlatform.Api.Data;
 using BookingPlatform.Api.Errors;
+using BookingPlatform.Api.Events;
 using BookingPlatform.Api.Observability;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
@@ -76,6 +77,8 @@ builder.Services.AddScoped<AuthTokenService>();
 builder.Services.AddSingleton<IPasswordHasher<User>, PasswordHasher<User>>();
 builder.Services.AddSingleton<Passwords>();
 builder.Services.AddScoped<AccessResolver>();
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<OutboxWriter>(); // specs/06-events.md: events go through the outbox
 builder.Services.AddAuthRateLimiting(builder.Configuration);
 
 var app = builder.Build();

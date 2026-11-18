@@ -20,10 +20,13 @@ Mark a task `[x]` when its "Done when" holds. A task that touches the schema add
 - Auth details (T4): `PasswordHasher` (PBKDF2) for passwords; login gives one `InvalidCredentials` for every failure with similar timing; 10 requests per minute per IP on `/v1/auth/`, 60 for refresh and logout (429 `RequestRejected`); email and name trimmed, checked after trimming; canonical IANA time zone names only; null in `PATCH /v1/me` gives 400; a sign-up race is decided by the unique index, 2026-11-17.
 - Password recovery and change (stories added 2026-11-17): same 202 whether or not an account exists; `password_resets` table like invites (worker makes the token, 1-hour link, single use, newest only); one recovery email per account per 5 minutes; a link also works for an account with no password yet (accepts the invite); reset and change revoke every refresh token; change returns new tokens, wrong current password is 422 `CurrentPasswordIncorrect`, endpoint under `/v1/auth/` for the rate limit; `PasswordChanged` email after both, 2026-11-17.
 - Cross-cutting: `InternalError` (500) and `RequestRejected` (other HTTP-level 4xx such as 405, 413, 415; added 2026-11-17 after code review) added to the error codes; access tokens carry exactly the ADR 0010 claims; `X-Correlation-Id` header; built-in JSON console logging and DataAnnotations validation, no extra libraries, 2026-11-17.
+- Outbox writer (T5): typed C# event records (`Events/`); `OutboxWriter.Add` only stages the row in the caller's DbContext, so the caller's SaveChanges and transaction decide whether it is written; correlation ID is the explicit argument, else the request's `X-Correlation-Id`, else a new ID; `eventId` = `outbox.id`, a version-7 GUID; `occurredAt` = `created_at`, written with milliseconds and `Z`; camelCase JSON, string enums, null fields kept; non-UTC times throw (R2). Payloads are checked against `specs/events/` in tests only, with Corvus.Json.Validator (Apache-2.0; JsonSchema.Net was passed over because of its maintenance-fee EULA), 2026-11-18.
 
 ## Decisions needed
 
-None open as of 2026-11-16. If a new one comes up, add it here with the task it blocks, and record the answer in `specs/` or an ADR before starting that task.
+If a new one comes up, add it here with the task it blocks, and record the answer in `specs/` or an ADR before starting that task.
+
+- **Outbox ordering (blocks T21, raised 2026-11-18).** The relay can order rows only by `created_at`. That ties within a millisecond (version-7 GUIDs are random within a millisecond, so `id` doesn't break the tie) and comes from each API instance's clock, so two events for one message group written close together on different instances could be published out of order. No current flow writes two events for one group in a transaction, and real actions are seconds apart. Option: an auto-increment `seq` column on `outbox` (migration, `specs/05-data-model.md` change) that the relay orders by. Decide before starting T21.
 
 ## Foundation
 
@@ -45,8 +48,9 @@ None open as of 2026-11-16. If a new one comes up, add it here with the task it 
   Acceptance: stories "Customer can sign up", "Owner/Staff/Customer can log in". Login fails for an account with no password. ADR 0010 (refresh rotates, a reused token revokes the login, logout returns 204 for any token).
   Also: add requests for these endpoints to `src/BookingPlatform.Api/BookingPlatform.Api.http` for manual testing, with the access token from login captured in a variable and reused.
 
-- [ ] **T5. Outbox writer.** Writing an event to `outbox` in the caller's transaction, using the envelope and schemas in `specs/events/`. No relay yet.
+- [x] **T5. Outbox writer.** Writing an event to `outbox` in the caller's transaction, using the envelope and schemas in `specs/events/`. No relay yet.
   Done when: tests show an event is written if and only if its transaction commits, and every payload validates against its JSON Schema.
+  Notes: `OutboxWriter.Add` only stages the row, so a missing SaveChanges loses the event silently. Every task that emits an event tests that its outbox row exists after the request and that its payload validates (`EventSchemas` in the test projects). Payloads are checked in tests only, so a bad payload would otherwise first fail in the worker.
 
 - [ ] **T6. Admin creates owners.** Operator script to grant and revoke admin (`platform_admins`); a grant names an existing admin as `granted_by`, except the first (bootstrap) admin. `POST /v1/admin/owners`, creating the user and invite when needed and emitting `AccessGranted`.
   Acceptance: story "Admin creates an owner and their business"; admin authorization (`specs/07-nfr.md`).
@@ -80,6 +84,7 @@ None open as of 2026-11-16. If a new one comes up, add it here with the task it 
 
 - [ ] **T14. Create a booking.** `POST /v1/bookings` without the R4 rebook check: for oneself or on behalf of a customer, staff lock (ADR 0002), buffer snapshot (ADR 0004), start on an offered slot (R8), notice override (R3), history creation row, `BookingCreated`.
   Acceptance: R1, R3, R7 (a real concurrent test against MySQL: exactly one success and one 409 whose body has only staff, start and end), R8; stories "Customer books a slot", "Staff or owner books on behalf of a customer" (except the R4 scenario), "Owner or staff overrides the minimum notice period" (booking scenarios).
+  Note: new bookings start at `version` 1 (`Booking.Version` defaults to 0); `BookingCreated.bookingVersion` must be at least 1 or the worker rejects the event. Test the outbox payload, not just the response.
 
 - [ ] **T15. Confirm-before-acting and R4 rebook.** A shared component for the confirm pattern (409 `ConfirmationRequired`, recomputing the affected set under the lock, re-409 on mismatch), first used on `POST /v1/bookings` for R4, emitting `RebookedInsideWindow`.
   Acceptance: R4 (rebook paragraph); the R4 scenarios in the customer and on-behalf stories; the confirm pattern in the OpenAPI description.
@@ -103,6 +108,7 @@ None open as of 2026-11-16. If a new one comes up, add it here with the task it 
 
 - [ ] **T21. Outbox relay.** Publishes unpublished outbox rows to the SQS FIFO queue with the message group from `specs/06-events.md`, then marks them published. Hosted service in the API claiming rows with `FOR UPDATE SKIP LOCKED`, deduplication ID = `eventId` (ADR 0008); publisher interface with an in-memory fake, plus a real-AWS test (ADR 0007).
   Done when: tests show rows are published in order per message group, published at least once, and never lost between commit and publish.
+  Before starting: settle "Outbox ordering" under Decisions needed.
 
 - [ ] **T22. Business time zone change.** `POST .../time-zone-change` (all staff locks, confirm pattern, 200 no-op for the current zone, audit row, `BookingLocalTimeChanged` per affected booking) and `GET .../time-zone-changes`.
   Acceptance: R2; story "Owner changes the business's time zone".
