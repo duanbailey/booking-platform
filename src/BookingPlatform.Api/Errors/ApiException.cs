@@ -35,6 +35,7 @@ public sealed class ApiException(int status, ErrorCode code, string message, str
             StatusCodes.Status408RequestTimeout => "The request took too long to arrive.",
             StatusCodes.Status413PayloadTooLarge => "The request body is too large.",
             StatusCodes.Status415UnsupportedMediaType => "Send the request body as application/json.",
+            StatusCodes.Status429TooManyRequests => "Too many requests; wait for the Retry-After seconds and try again.",
             StatusCodes.Status431RequestHeaderFieldsTooLarge => "The request headers are too large.",
             _ => "The request was rejected.",
         });
@@ -54,6 +55,13 @@ public sealed class ApiException(int status, ErrorCode code, string message, str
     };
 
     public const string InternalErrorMessage = "Something went wrong. Quote the X-Correlation-Id header if you report this.";
+
+    /// <summary>Unknown email, wrong password or no password yet, without saying which (specs/07-nfr.md).</summary>
+    public static ApiException InvalidCredentials() =>
+        new(StatusCodes.Status401Unauthorized, ErrorCode.InvalidCredentials, "The email or password is incorrect.");
+
+    public static ApiException EmailTaken() =>
+        new(StatusCodes.Status409Conflict, ErrorCode.EmailTaken, "An account with this email already exists.");
 
     /// <summary>Unknown, expired, used or revoked, without saying which (ADR 0010).</summary>
     public static ApiException InvalidRefreshToken() =>

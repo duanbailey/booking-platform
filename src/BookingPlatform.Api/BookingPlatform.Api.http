@@ -1,6 +1,68 @@
-@BookingPlatform.Api_HostAddress = http://localhost:5107
+# Manual requests for the API. Run them in order with "Send Request" (Visual Studio,
+# Rider, or VS Code with the REST Client extension). Start the API with the "http"
+# launch profile, and apply migrations once first: dotnet ef database update
+#
+# /v1/auth/ endpoints allow 10 requests per minute per IP (specs/07-nfr.md).
 
+@BookingPlatform.Api_HostAddress = http://localhost:5107
+@email = ann@example.test
+@password = correct horse battery
+
+### OpenAPI document (Development only)
 GET {{BookingPlatform.Api_HostAddress}}/openapi/v1.json
 Accept: application/json
 
-###
+### Sign up (409 EmailTaken if already done; then just log in)
+POST {{BookingPlatform.Api_HostAddress}}/v1/auth/register
+Content-Type: application/json
+
+{
+  "name": "Ann Example",
+  "email": "{{email}}",
+  "password": "{{password}}",
+  "timeZone": "Europe/London"
+}
+
+### Log in: the tokens are captured for the requests below
+# @name login
+POST {{BookingPlatform.Api_HostAddress}}/v1/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}"
+}
+
+### Profile and roles
+GET {{BookingPlatform.Api_HostAddress}}/v1/me
+Authorization: Bearer {{login.response.body.accessToken}}
+
+### Change name or time zone (send only what changes)
+PATCH {{BookingPlatform.Api_HostAddress}}/v1/me
+Authorization: Bearer {{login.response.body.accessToken}}
+Content-Type: application/json
+
+{
+  "timeZone": "America/New_York"
+}
+
+### Refresh: rotates the refresh token (send the login's token twice to see reuse detection)
+# @name refresh
+POST {{BookingPlatform.Api_HostAddress}}/v1/auth/refresh
+Content-Type: application/json
+
+{
+  "refreshToken": "{{login.response.body.refreshToken}}"
+}
+
+### Profile with the refreshed access token
+GET {{BookingPlatform.Api_HostAddress}}/v1/me
+Authorization: Bearer {{refresh.response.body.accessToken}}
+
+### Log out: revokes every refresh token from this login (204)
+POST {{BookingPlatform.Api_HostAddress}}/v1/auth/logout
+Content-Type: application/json
+
+{
+  "refreshToken": "{{refresh.response.body.refreshToken}}"
+}

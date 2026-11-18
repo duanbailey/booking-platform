@@ -5,6 +5,8 @@ using BookingPlatform.Api.Errors;
 using BookingPlatform.Api.Observability;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
@@ -70,10 +72,20 @@ builder.Services.AddAuthorizationBuilder()
 
 builder.Services.AddSingleton<AccessTokenIssuer>();
 builder.Services.AddScoped<RefreshTokenService>();
+builder.Services.AddScoped<AuthTokenService>();
+builder.Services.AddSingleton<IPasswordHasher<User>, PasswordHasher<User>>();
+builder.Services.AddSingleton<Passwords>();
 builder.Services.AddScoped<AccessResolver>();
+builder.Services.AddAuthRateLimiting(builder.Configuration);
 
 var app = builder.Build();
 
+// Client IP and scheme from the load balancer. Only loopback proxies are trusted by
+// default; T27 adds the load balancer's network, so clients can't spoof their IP.
+app.UseForwardedHeaders(new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto,
+});
 app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseMiddleware<ErrorHandlingMiddleware>();
 // Any error status with an empty body (authentication challenges, unknown routes, wrong
@@ -88,6 +100,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();

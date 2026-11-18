@@ -17,6 +17,8 @@ Mark a task `[x]` when its "Done when" holds. A task that touches the schema add
 - Outbox relay hosting: background service in the API, so the API runs on ECS Fargate ([ADR 0008](../docs/adr/0008-outbox-relay-in-api.md)), 2026-11-16.
 - Infrastructure as code: Terraform, S3 state backend ([ADR 0009](../docs/adr/0009-terraform-for-infrastructure.md)), 2026-11-16.
 - Tokens: 15-minute HS256 access tokens, 30-day sliding refresh tokens with rotation and reuse detection, refresh and logout endpoints ([ADR 0010](../docs/adr/0010-refresh-token-rotation.md)), 2026-11-17.
+- Auth details (T4): `PasswordHasher` (PBKDF2) for passwords; login gives one `InvalidCredentials` for every failure with similar timing; 10 requests per minute per IP on `/v1/auth/`, 60 for refresh and logout (429 `RequestRejected`); email and name trimmed, checked after trimming; canonical IANA time zone names only; null in `PATCH /v1/me` gives 400; a sign-up race is decided by the unique index, 2026-11-17.
+- Password recovery and change (stories added 2026-11-17): same 202 whether or not an account exists; `password_resets` table like invites (worker makes the token, 1-hour link, single use, newest only); one recovery email per account per 5 minutes; a link also works for an account with no password yet (accepts the invite); reset and change revoke every refresh token; change returns new tokens, wrong current password is 422 `CurrentPasswordIncorrect`, endpoint under `/v1/auth/` for the rate limit; `PasswordChanged` email after both, 2026-11-17.
 - Cross-cutting: `InternalError` (500) and `RequestRejected` (other HTTP-level 4xx such as 405, 413, 415; added 2026-11-17 after code review) added to the error codes; access tokens carry exactly the ADR 0010 claims; `X-Correlation-Id` header; built-in JSON console logging and DataAnnotations validation, no extra libraries, 2026-11-17.
 
 ## Decisions needed
@@ -39,7 +41,7 @@ None open as of 2026-11-16. If a new one comes up, add it here with the task it 
 
 ## Accounts and businesses
 
-- [ ] **T4. Sign-up, login and profile.** `POST /v1/auth/register`, `POST /v1/auth/login`, `POST /v1/auth/refresh`, `POST /v1/auth/logout`, `GET` and `PATCH /v1/me` (including `isAdmin`, owned business and staff rows).
+- [x] **T4. Sign-up, login and profile.** `POST /v1/auth/register`, `POST /v1/auth/login`, `POST /v1/auth/refresh`, `POST /v1/auth/logout`, `GET` and `PATCH /v1/me` (including `isAdmin`, owned business and staff rows).
   Acceptance: stories "Customer can sign up", "Owner/Staff/Customer can log in". Login fails for an account with no password. ADR 0010 (refresh rotates, a reused token revokes the login, logout returns 204 for any token).
   Also: add requests for these endpoints to `src/BookingPlatform.Api/BookingPlatform.Api.http` for manual testing, with the access token from login captured in a variable and reused.
 
@@ -51,6 +53,9 @@ None open as of 2026-11-16. If a new one comes up, add it here with the task it 
 
 - [ ] **T7. Invites.** `POST /v1/auth/accept-invite` and `POST /v1/users/{userId}/resend-invite`. Tests insert the token hash directly, standing in for the worker (T26).
   Acceptance: story "Invited user sets their password" (expiry, single use, only the newest link works, `InviteNotPending`).
+
+- [ ] **T7a. Password recovery and change.** `POST /v1/auth/forgot-password`, `POST /v1/auth/reset-password` and `POST /v1/auth/change-password`; the `password_resets` migration (and the new `notifications.kind` values); `PasswordResetRequested` and `PasswordChanged` events through the outbox (T5). Tests insert the token hash directly, standing in for the worker (T26).
+  Acceptance: stories "User can recover a forgotten password" (same reply whether or not the account exists, 5-minute cooldown, 1-hour single-use link, only the newest works, an account without a password accepts its invite this way) and "User can change their password" (`CurrentPasswordIncorrect`); both revoke every refresh token; `ResetLinkInvalid`.
 
 - [ ] **T8. Business settings.** `GET /v1/businesses/{businessId}` and `PATCH .../settings`, with defaults from the data model.
   Acceptance: story "Owner sets up their business"; R3, R4, R8 (changes never rewrite existing bookings).
@@ -113,13 +118,14 @@ None open as of 2026-11-16. If a new one comes up, add it here with the task it 
 - [ ] **T25. Reminders.** Scheduling, moving and deleting EventBridge Scheduler reminders named by booking ID, skipping past times, and handling `ReminderDue` (dropped if stale).
   Acceptance: R9; story "Reminders go out 24 hours and 1 hour before a booking".
 
-- [ ] **T26. Invite emails.** `AccessGranted` handling: token generation, hash and 7-day expiry on `user_invites`, a new token on re-send, never logging the raw token, and the AccessGranted email when there is no invite. Uses a database user limited as in `specs/07-nfr.md`.
-  Acceptance: worker handling table; invite stories (end to end with T7).
+- [ ] **T26. Invite and account emails.** `AccessGranted` handling: token generation, hash and 7-day expiry on `user_invites`, a new token on re-send, never logging the raw token, and the AccessGranted email when there is no invite. `PasswordResetRequested` handling the same way on `password_resets` with a 1-hour expiry, and the `PasswordChanged` email. Uses a database user limited as in `specs/07-nfr.md`.
+  Acceptance: worker handling table; invite stories (end to end with T7); recovery story (end to end with T7a).
 
 ## Infrastructure and later
 
 - [ ] **T27. Infrastructure as code.** Terraform in `infra/` (ADR 0009). API on ECS Fargate (ADR 0008), RDS MySQL, SQS FIFO queue with a FIFO dead-letter queue and an alarm when it is not empty, worker Lambda, SES, EventBridge Scheduler, Secrets Manager, CloudWatch, and the worker's limited database user.
   Done when: one command deploys a working environment, and a booking made through the API produces a confirmation email.
+  Configure trusted forwarded headers (the load balancer's network) so rate limiting sees real client IPs, and make sure the API image has time zone data (tzdata) for IANA names.
   Before the first deployment: squash the EF Core migrations into one `InitialSchema` (ADR 0006). Do it once, after every task branch is merged. Copy across any hand-written `migrationBuilder.Sql` (e.g. the worker's database user), and drop and recreate any database that applied the old migrations. The schema tests must pass afterwards. Once any environment is deployed, migrations are never squashed again.
 
 - [ ] **T28. Slot query performance.** A repeatable test that a 30-day slot query meets p95 under 300 ms (`specs/07-nfr.md`) on realistic data; fix any shortfall.

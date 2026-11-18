@@ -59,6 +59,44 @@ Scenario: Given a visitor is on the sign-up page
 When they enter an email that already belongs to an account
 Then the sign-up is refused, and they are told an account with that email already exists.
 
+# Story: User can recover a forgotten password
+Scenario: Given a visitor is on the login page
+When they request password recovery and enter an email that belongs to an account
+Then a recovery email with a link is sent to that address
+And they are told that if an account exists for that email, a link has been sent.
+
+Scenario: Given a visitor is on the login page
+When they request password recovery and enter an email that does not belong to an account
+Then no email is sent
+And they are told the same as when the account exists, so the page never reveals which emails have accounts.
+
+Scenario: Given a recovery email was sent for an account less than 5 minutes ago
+When recovery is requested for that account again
+Then no email is sent, and the visitor is told the same as before.
+
+Scenario: Given a user has received a recovery email
+When they follow its link within 1 hour and set a new password
+Then their password is saved, the link stops working, they are logged out everywhere else, and they are logged in
+And they are emailed that their password was changed.
+
+Scenario: Given a user has received a recovery email
+When they follow its link after 1 hour, after it has been used, or after a newer recovery email was sent
+Then they are told the link is no longer valid, and nothing changes.
+
+Scenario: Given an account was created with an invite and has no password yet
+When recovery is requested for it and the user sets a password through the link
+Then the password is saved as if the invite had been accepted, and the invite links stop working.
+
+# Story: User can change their password
+Scenario: Given a user is logged in and chooses to change their password
+When they enter their current password and a new password
+Then their password is updated, they are logged out everywhere else, and they stay logged in
+And they are emailed that their password was changed.
+
+Scenario: Given a user is logged in and chooses to change their password
+When they enter a wrong current password
+Then they are told the current password is incorrect, and nothing changes.
+
 # Story: Owner sets up their business
 Scenario (R2, R3, R4, R8): Given the owner is logged in
 And on the owner account page
