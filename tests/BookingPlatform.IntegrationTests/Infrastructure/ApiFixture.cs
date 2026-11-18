@@ -5,7 +5,7 @@ using System.Text.Json;
 namespace BookingPlatform.IntegrationTests.Infrastructure;
 
 /// <summary>One migrated database and one API host, shared by the tests of a class.</summary>
-public sealed class ApiFixture : IAsyncLifetime
+public class ApiFixture : IAsyncLifetime
 {
     public TestDatabase Database { get; } = new();
     public ApiFactory Api { get; private set; } = null!;
@@ -13,10 +13,13 @@ public sealed class ApiFixture : IAsyncLifetime
 
     public const string Password = "correct horse battery";
 
+    /// <summary>The API's clock; null for the system clock.</summary>
+    protected virtual TimeProvider? Time => null;
+
     public async Task InitializeAsync()
     {
         await Database.InitializeAsync();
-        Api = new ApiFactory(Database);
+        Api = new ApiFactory(Database, time: Time);
         Sql = new Sql(Database.ConnectionString);
     }
 
@@ -42,4 +45,19 @@ public sealed class ApiFixture : IAsyncLifetime
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         return client;
     }
+}
+
+/// <summary>
+/// An <see cref="ApiFixture"/> whose API clock stands still at the moment the fixture was
+/// made (whole seconds), so tests can put an expiry exactly at "now". The clock stays near
+/// the real time, so access tokens it issues are still accepted.
+/// </summary>
+public sealed class FrozenClockApiFixture : ApiFixture
+{
+    public MutableTimeProvider Clock { get; } =
+        new(DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
+
+    public DateTime Now => Clock.GetUtcNow().UtcDateTime;
+
+    protected override TimeProvider? Time => Clock;
 }

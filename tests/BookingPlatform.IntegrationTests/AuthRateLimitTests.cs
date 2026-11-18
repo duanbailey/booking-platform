@@ -48,6 +48,21 @@ public class AuthRateLimitTests : IClassFixture<TestDatabase>, IDisposable
     }
 
     [Fact]
+    public async Task Accept_invite_shares_the_login_limit()
+    {
+        // T7: accept-invite checks a secret, so it counts against the same budget (specs/07-nfr.md).
+        var client = _api.ClientFrom("203.0.113.22");
+        await client.PostJsonAsync("/v1/auth/login", Credentials);
+        await client.PostJsonAsync("/v1/auth/login", Credentials);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PostJsonAsync("/v1/auth/accept-invite",
+            new { token = "unknown-token", password = "a long enough password" })).StatusCode);
+
+        var response = await client.PostJsonAsync("/v1/auth/login", Credentials);
+
+        await Json.ErrorAsync(response, HttpStatusCode.TooManyRequests, "RequestRejected");
+    }
+
+    [Fact]
     public async Task Refresh_and_logout_have_their_own_looser_limit()
     {
         // Many users behind one IP refresh every 15 minutes; that must not block their logins.

@@ -271,4 +271,28 @@ public class AdminOwnersTests(ApiFixture fixture) : IClassFixture<ApiFixture>
         Assert.Equal(1, await CountAsync("SELECT COUNT(*) FROM businesses WHERE owner_user_id = @userId", new { userId }));
         Assert.Single(await AccessGrantedAsync(userId));
     }
+
+    [Fact]
+    public async Task Create_owner_waits_for_the_user_row_lock_and_then_sees_a_password_set_meanwhile()
+    {
+        // T7 (decided 2026-11-18): an invite accepted while the owner is being created must not
+        // leave a new invite for an account that now has a password; it gets the notice instead.
+        var (admin, _) = await AdminAsync();
+        var email = ApiFixture.NewEmail();
+        var userId = await fixture.Sql.InsertUserAsync(email);
+        Task<HttpResponseMessage> create;
+        await using (var held = await fixture.Sql.LockUserRowAsync(userId))
+        {
+            create = admin.PostJsonAsync(Path, Request(email));
+            await fixture.Sql.WaitForLockWaitAsync("users");
+            Assert.False(create.IsCompleted);
+            await held.ExecuteAsync("UPDATE users SET password_hash = 'set-meanwhile' WHERE id = @userId", new { userId });
+            await held.CommitAsync();
+        }
+
+        await Json.ReadAsync(await create, HttpStatusCode.Created);
+        Assert.Equal(0, await CountAsync("SELECT COUNT(*) FROM user_invites WHERE user_id = @userId", new { userId }));
+        var data = Assert.Single(await AccessGrantedAsync(userId)).GetProperty("data");
+        Assert.Equal(JsonValueKind.Null, data.GetProperty("inviteId").ValueKind);
+    }
 }

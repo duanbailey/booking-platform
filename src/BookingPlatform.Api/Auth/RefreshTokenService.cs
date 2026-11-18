@@ -1,6 +1,5 @@
 using System.Buffers.Text;
 using System.Security.Cryptography;
-using System.Text;
 using BookingPlatform.Api.Data;
 using BookingPlatform.Api.Errors;
 using Microsoft.EntityFrameworkCore;
@@ -94,5 +93,5 @@ public sealed class RefreshTokenService(BookingDbContext db, TimeProvider time, 
 
     private DateTime Now() => time.GetUtcNow().UtcDateTime;
 
-    private static string Hash(string token) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
+    private static string Hash(string token) => TokenHash.Of(token);
 }

@@ -90,6 +90,7 @@ builder.Services.AddAuthorizationBuilder()
 builder.Services.AddSingleton<AccessTokenIssuer>();
 builder.Services.AddScoped<RefreshTokenService>();
 builder.Services.AddScoped<AuthTokenService>();
+builder.Services.AddScoped<InviteService>();
 builder.Services.AddSingleton<IPasswordHasher<User>, PasswordHasher<User>>();
 builder.Services.AddSingleton<Passwords>();
 builder.Services.AddScoped<AccessResolver>();

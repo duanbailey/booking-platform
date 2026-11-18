@@ -70,4 +70,12 @@ public sealed class ApiException(int status, ErrorCode code, string message, str
     /// <summary>Unknown, expired, used or revoked, without saying which (ADR 0010).</summary>
     public static ApiException InvalidRefreshToken() =>
         new(StatusCodes.Status401Unauthorized, ErrorCode.InvalidRefreshToken, "The refresh token is not valid.");
+
+    /// <summary>Unknown, expired, used or superseded invite link, without saying which (specs/04-api.openapi.yaml).</summary>
+    public static ApiException InviteInvalid() =>
+        new(StatusCodes.Status400BadRequest, ErrorCode.InviteInvalid, "This invite link is no longer valid.");
+
+    /// <summary>Resend refused: the account already has a password.</summary>
+    public static ApiException InviteNotPending() =>
+        new(StatusCodes.Status422UnprocessableEntity, ErrorCode.InviteNotPending, "This account already has a password.");
 }

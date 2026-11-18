@@ -45,6 +45,65 @@ public sealed class Sql(string connectionString)
         }
     }
 
+    /// <summary>
+    /// Waits until some statement is blocked on a row lock in <paramref name="table"/> and
+    /// returns its SQL. Uses performance_schema.data_lock_waits, not innodb_trx, which is a
+    /// cache refreshed only after 0.1 s without reads (see RefreshTokenTests).
+    /// </summary>
+    public async Task<string> WaitForLockWaitAsync(string table)
+    {
+        const string waitingStatement =
+            "SELECT s.SQL_TEXT FROM performance_schema.data_lock_waits w " +
+            "JOIN performance_schema.data_locks l ON l.ENGINE_LOCK_ID = w.REQUESTING_ENGINE_LOCK_ID " +
+            "JOIN performance_schema.events_statements_current s ON s.THREAD_ID = w.REQUESTING_THREAD_ID " +
+            "WHERE l.OBJECT_SCHEMA = DATABASE() AND l.OBJECT_NAME = @table LIMIT 1";
+
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (await ScalarAsync(waitingStatement, new { table }) is string sql) return sql;
+            await Task.Delay(20);
+        }
+        throw new Xunit.Sdk.XunitException($"Nothing waited for a row lock on {table}.");
+    }
+
+    /// <summary>
+    /// Opens a transaction holding <c>SELECT ... FOR UPDATE</c> on one user row. It is rolled
+    /// back on dispose unless committed; statements can run inside it meanwhile.
+    /// </summary>
+    public async Task<HeldLock> LockUserRowAsync(Guid userId)
+    {
+        var connection = new MySqlConnection(connectionString);
+        await connection.OpenAsync();
+        var held = new HeldLock(connection, await connection.BeginTransactionAsync());
+        await held.ExecuteAsync("SELECT id FROM users WHERE id = @userId FOR UPDATE", new { userId });
+        return held;
+    }
+
+    public sealed class HeldLock(MySqlConnection connection, MySqlTransaction transaction) : IAsyncDisposable
+    {
+        private bool _committed;
+
+        public async Task ExecuteAsync(string sql, object? parameters = null)
+        {
+            await using var command = new MySqlCommand(sql, connection, transaction);
+            AddParameters(command, parameters);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        public async Task CommitAsync()
+        {
+            await transaction.CommitAsync();
+            _committed = true;
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            if (!_committed) await transaction.RollbackAsync();
+            await connection.DisposeAsync();
+        }
+    }
+
     // ------------------------------------------------------------ Seed rows
 
     /// <summary>Inserts a user; with no <paramref name="passwordHash"/> the account has no password (invited).</summary>
@@ -57,6 +116,30 @@ public sealed class Sql(string connectionString)
             new { id, email = email ?? $"{id:N}@example.test", passwordHash, now = Now });
         return id;
     }
+
+    /// <summary>
+    /// Inserts a user_invites row. With a <paramref name="token"/>, it is stored as the worker
+    /// would store it (T26): its lowercase hex SHA-256 and an expiry; without one, as the API
+    /// leaves it before the worker has sent the email.
+    /// </summary>
+    public async Task<Guid> InsertInviteAsync(Guid userId, string? token = null, DateTime? expiresAt = null,
+        DateTime? createdAt = null, DateTime? usedAt = null, Guid? id = null, Guid? createdBy = null)
+    {
+        var inviteId = id ?? Guid.NewGuid();
+        await ExecuteAsync(
+            "INSERT INTO user_invites (id, user_id, token_hash, expires_at, used_at, created_by, created_at) " +
+            "VALUES (@inviteId, @userId, @tokenHash, @expiresAt, @usedAt, @createdBy, @createdAt)",
+            new
+            {
+                inviteId, userId, tokenHash = token is null ? null : TokenHash(token),
+                expiresAt = token is null ? (DateTime?)null : expiresAt ?? DateTime.UtcNow.AddDays(7),
+                usedAt, createdBy = createdBy ?? userId, createdAt = createdAt ?? Now,
+            });
+        return inviteId;
+    }
+
+    public static string TokenHash(string token) =>
+        Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(token)));
 
     public async Task InsertAdminAsync(Guid userId, Guid? grantedBy = null) =>
         await ExecuteAsync(

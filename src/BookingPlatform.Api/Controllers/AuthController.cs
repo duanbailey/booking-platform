@@ -21,8 +21,12 @@ public sealed record LoginRequest([Required] string Email, [Required] string Pas
 
 public sealed record RefreshTokenRequest([Required] string RefreshToken);
 
+public sealed record AcceptInviteRequest(
+    [Required(AllowEmptyStrings = false)] string Token,
+    [Required, StringLength(128, MinimumLength = 8)] string Password);
+
 /// <summary>
-/// Sign-up, login, refresh and logout (specs/04-api.openapi.yaml, ADR 0010). Every action
+/// Sign-up, login, accepting an invite, refresh and logout (specs/04-api.openapi.yaml, ADR 0010). Every action
 /// is anonymous and rate limited per client IP (specs/07-nfr.md); refresh and logout use
 /// their own, looser limit, since every logged-in client refreshes every 15 minutes.
 /// </summary>
@@ -31,7 +35,8 @@ public sealed record RefreshTokenRequest([Required] string RefreshToken);
 [AllowAnonymous]
 [EnableRateLimiting(RateLimits.Auth)]
 public sealed class AuthController(
-    BookingDbContext db, Passwords passwords, AuthTokenService tokens, TimeProvider time) : ControllerBase
+    BookingDbContext db, Passwords passwords, AuthTokenService tokens, InviteService invites, TimeProvider time)
+    : ControllerBase
 {
     private const int MySqlDuplicateKey = 1062;
 
@@ -84,6 +89,14 @@ public sealed class AuthController(
         }
         return Ok(await tokens.StartLoginAsync(user!.Id, ct));
     }
+
+    /// <summary>
+    /// Story "Invited user sets their password": sets the password and logs the user in.
+    /// Every refusal is the same 400 InviteInvalid.
+    /// </summary>
+    [HttpPost("accept-invite")]
+    public async Task<IActionResult> AcceptInvite(AcceptInviteRequest request, CancellationToken ct) =>
+        Ok(await invites.AcceptAsync(request.Token, request.Password, ct));
 
     [HttpPost("refresh")]
     [EnableRateLimiting(RateLimits.Refresh)]

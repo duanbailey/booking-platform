@@ -468,7 +468,14 @@ paths:
       description: |
         An admin may resend invites for owner accounts; an owner may resend
         invites for their business's staff. A new invite is sent and only the
-        newest link works. Emits `AccessGranted`.
+        newest link works. Emits `AccessGranted`: role `Owner` with the owned
+        business when the caller is an admin and the user owns a business
+        (this wins if both apply), otherwise role `Staff` with the caller's
+        business when the user is active (not removed) staff there. Any other
+        caller gets 404, checked before `InviteNotPending`, so the response
+        never reveals whether the user exists or has a password. Takes a lock
+        on the user row, so it never races an invite being accepted. Not
+        throttled (decided 2026-11-18).
       parameters:
         - $ref: '#/components/parameters/UserId'
       responses:

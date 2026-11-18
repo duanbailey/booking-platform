@@ -45,7 +45,11 @@ public sealed class AdminController(
 
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
 
-        var owner = await db.Users.SingleOrDefaultAsync(u => u.Email == email, ct); // case-insensitive collation
+        // case-insensitive collation. An existing account is then locked (as accept-invite and
+        // resend-invite do, T7), so its password can't be set between this check and the invite.
+        // A new email isn't locked: the unique index on users.email settles that race.
+        var existingId = await db.Users.Where(u => u.Email == email).Select(u => (Guid?)u.Id).SingleOrDefaultAsync(ct);
+        var owner = existingId is null ? null : await db.LockUserAsync(existingId.Value, ct);
         if (owner is null)
         {
             owner = new User

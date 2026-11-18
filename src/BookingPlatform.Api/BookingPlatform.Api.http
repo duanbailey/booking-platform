@@ -80,3 +80,23 @@ Content-Type: application/json
   "businessName": "Cut & Dry",
   "businessTimeZone": "America/New_York"
 }
+
+### Resend an invite (T7): an admin for an owner, or an owner for their staff. 204; 422 InviteNotPending
+### once the account has a password; 404 for anyone else. Put the invited user's ID here (GET /v1/me as them,
+### or SELECT id FROM users WHERE email = 'olive@example.test').
+@invitedUserId = 00000000-0000-0000-0000-000000000000
+POST {{BookingPlatform.Api_HostAddress}}/v1/users/{{invitedUserId}}/resend-invite
+Authorization: Bearer {{login.response.body.accessToken}}
+
+### Accept an invite (T7). Until the worker sends emails (T26), make a token by hand: pick any random
+### string as the token and store its lowercase hex SHA-256 on the user's newest invite, e.g. in MySQL:
+###   UPDATE user_invites SET token_hash = SHA2('my-test-token', 256), expires_at = UTC_TIMESTAMP() + INTERVAL 7 DAY
+###   WHERE id = '<newest invite id>';
+### 200 with tokens, then 400 InviteInvalid if sent again.
+POST {{BookingPlatform.Api_HostAddress}}/v1/auth/accept-invite
+Content-Type: application/json
+
+{
+  "token": "my-test-token",
+  "password": "a new password for olive"
+}

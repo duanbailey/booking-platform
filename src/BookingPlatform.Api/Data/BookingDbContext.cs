@@ -32,6 +32,15 @@ public class BookingDbContext(DbContextOptions<BookingDbContext> options) : DbCo
     public DbSet<BookingHistory> BookingHistory => Set<BookingHistory>();
     public DbSet<Notification> Notifications => Set<Notification>();
 
+    /// <summary>
+    /// Loads the user with <c>SELECT ... FOR UPDATE</c>, inside the caller's transaction, so
+    /// accepting an invite, resending one and creating an owner for the same user run one
+    /// after another (T7). Call it before the user is tracked by this context: a tracked
+    /// instance would be returned with its old values, not the ones read under the lock.
+    /// </summary>
+    public Task<User?> LockUserAsync(Guid userId, CancellationToken ct = default) =>
+        Users.FromSql($"SELECT * FROM users WHERE id = {userId} FOR UPDATE").SingleOrDefaultAsync(ct);
+
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
         // R2: every timestamp is stored and read as UTC.

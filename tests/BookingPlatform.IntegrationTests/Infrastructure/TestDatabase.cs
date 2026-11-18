@@ -29,7 +29,14 @@ public sealed class TestDatabase : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        await using var context = CreateContext();
+        // Without pooling: EF Core's MySQL migrations take the server-wide named lock
+        // GET_LOCK('__EFMigrationsLock'), which belongs to the session. A pooled connection
+        // could go back to the pool still holding it, and every other test class's migration
+        // would then wait for it forever (seen 2026-11-18). Closing an unpooled connection
+        // ends the session, which always releases the lock.
+        var unpooled = new MySqlConnectionStringBuilder(ConnectionString) { Pooling = false }.ConnectionString;
+        await using var context = new BookingDbContext(
+            new DbContextOptionsBuilder<BookingDbContext>().UseMySQL(unpooled).Options);
         // Migrate() creates the database if it does not exist.
         await context.Database.MigrateAsync();
     }
