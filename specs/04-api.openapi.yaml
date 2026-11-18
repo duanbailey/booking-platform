@@ -422,10 +422,14 @@ paths:
       operationId: createOwner
       summary: Create a business and its owner
       description: |
-        Admin only. Creates the business with default settings. If no account
-        has `ownerEmail`, an account is created without a password and an
-        invite is sent; otherwise the existing account becomes the owner and is
-        emailed. Emits `AccessGranted`.
+        Admin only (403 `Forbidden` otherwise). Creates the business with default
+        settings. If no account has `ownerEmail`, an account is created without a
+        password (its time zone is `businessTimeZone`) and an invite is sent. If
+        the account exists and has no password yet, it becomes the owner and a new
+        invite is sent (only the newest link works). Otherwise the existing account
+        becomes the owner and is emailed. Emits `AccessGranted`. Returns the
+        business with a `Location` header. Two simultaneous requests for one email
+        give one 201 and one 409 `AlreadyOwner`.
       requestBody:
         required: true
         content:
@@ -1551,6 +1555,7 @@ components:
       minLength: 1
       maxLength: 200
     BusinessName:
+      description: Surrounding whitespace is trimmed and the name stored trimmed; 1-200 characters after trimming.
       type: string
       minLength: 1
       maxLength: 200

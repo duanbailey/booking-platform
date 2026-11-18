@@ -47,13 +47,27 @@ public sealed class Sql(string connectionString)
 
     // ------------------------------------------------------------ Seed rows
 
-    public async Task<Guid> InsertUserAsync(string? email = null)
+    /// <summary>Inserts a user; with no <paramref name="passwordHash"/> the account has no password (invited).</summary>
+    public async Task<Guid> InsertUserAsync(string? email = null, string? passwordHash = null)
     {
         var id = Guid.NewGuid();
         await ExecuteAsync(
             "INSERT INTO users (id, email, password_hash, name, time_zone, created_at) " +
-            "VALUES (@id, @email, NULL, 'Test User', 'Europe/London', @now)",
-            new { id, email = email ?? $"{id:N}@example.test", now = Now });
+            "VALUES (@id, @email, @passwordHash, 'Test User', 'Europe/London', @now)",
+            new { id, email = email ?? $"{id:N}@example.test", passwordHash, now = Now });
+        return id;
+    }
+
+    public async Task InsertAdminAsync(Guid userId, Guid? grantedBy = null) =>
+        await ExecuteAsync(
+            "INSERT INTO platform_admins (user_id, granted_by, granted_at) VALUES (@userId, @grantedBy, @now)",
+            new { userId, grantedBy, now = Now });
+
+    /// <summary>A user who is a platform admin, granted by the bootstrap admin of this database.</summary>
+    public async Task<Guid> InsertAdminUserAsync()
+    {
+        var id = await InsertUserAsync(passwordHash: "not-a-real-hash");
+        await InsertAdminAsync(id);
         return id;
     }
 

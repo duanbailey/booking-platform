@@ -63,6 +63,10 @@ public sealed class ApiException(int status, ErrorCode code, string message, str
     public static ApiException EmailTaken() =>
         new(StatusCodes.Status409Conflict, ErrorCode.EmailTaken, "An account with this email already exists.");
 
+    /// <summary>Story "Admin creates an owner": each user owns at most one business.</summary>
+    public static ApiException AlreadyOwner() =>
+        new(StatusCodes.Status409Conflict, ErrorCode.AlreadyOwner, "This account already owns a business.");
+
     /// <summary>Unknown, expired, used or revoked, without saying which (ADR 0010).</summary>
     public static ApiException InvalidRefreshToken() =>
         new(StatusCodes.Status401Unauthorized, ErrorCode.InvalidRefreshToken, "The refresh token is not valid.");

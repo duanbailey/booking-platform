@@ -1,3 +1,4 @@
+using BookingPlatform.Api.Admin;
 using BookingPlatform.Api.Auth;
 using BookingPlatform.Api.Authorization;
 using BookingPlatform.Api.Data;
@@ -13,7 +14,11 @@ using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
 
-var builder = WebApplication.CreateBuilder(args);
+// `admin ...` runs the operator script (AdminCli) instead of the web server. Its arguments
+// are not passed to the host, so they can't be read as configuration.
+var adminArgs = args is ["admin", .. var rest] ? rest : null;
+
+var builder = WebApplication.CreateBuilder(adminArgs is null ? args : []);
 
 // Structured logging: JSON lines on stdout, collected by CloudWatch (specs/07-nfr.md).
 builder.Logging.ClearProviders();
@@ -23,6 +28,17 @@ builder.Logging.AddJsonConsole(o =>
     o.UseUtcTimestamp = true;
     o.TimestampFormat = "yyyy-MM-ddTHH:mm:ss.fffZ";
 });
+if (adminArgs is not null)
+{
+    // The script's own output owns stdout; only warnings and errors are logged, to stderr.
+    builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
+    {
+        ["Logging:LogLevel:Default"] = "Warning",
+        ["Logging:LogLevel:Microsoft.AspNetCore"] = "Warning",
+    });
+    builder.Services.Configure<Microsoft.Extensions.Logging.Console.ConsoleLoggerOptions>(
+        o => o.LogToStandardErrorThreshold = LogLevel.Trace);
+}
 
 builder.Services.AddControllers()
     .AddJsonOptions(o =>
@@ -83,6 +99,11 @@ builder.Services.AddAuthRateLimiting(builder.Configuration);
 
 var app = builder.Build();
 
+if (adminArgs is not null)
+{
+    return await AdminCli.RunAsync(adminArgs, app.Services, Console.Out, Console.Error);
+}
+
 // Client IP and scheme from the load balancer. Only loopback proxies are trusted by
 // default; T27 adds the load balancer's network, so clients can't spoof their IP.
 app.UseForwardedHeaders(new ForwardedHeadersOptions
@@ -109,6 +130,7 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
+return 0;
 
 // Exposed for WebApplicationFactory in tests.
 public partial class Program;

@@ -66,3 +66,17 @@ Content-Type: application/json
 {
   "refreshToken": "{{refresh.response.body.refreshToken}}"
 }
+
+### Admin creates an owner and their business (T6). The logged-in user must be an admin first:
+###   dotnet src/BookingPlatform.Api/bin/Debug/net10.0/BookingPlatform.Api.dll admin grant <email> [--granted-by <admin email>]
+### (run with ASPNETCORE_ENVIRONMENT=Development). 201 with Location; a second run gives 409 AlreadyOwner.
+POST {{BookingPlatform.Api_HostAddress}}/v1/admin/owners
+Authorization: Bearer {{login.response.body.accessToken}}
+Content-Type: application/json
+
+{
+  "ownerName": "Olive Owner",
+  "ownerEmail": "olive@example.test",
+  "businessName": "Cut & Dry",
+  "businessTimeZone": "America/New_York"
+}

@@ -21,6 +21,7 @@ Mark a task `[x]` when its "Done when" holds. A task that touches the schema add
 - Password recovery and change (stories added 2026-11-17): same 202 whether or not an account exists; `password_resets` table like invites (worker makes the token, 1-hour link, single use, newest only); one recovery email per account per 5 minutes; a link also works for an account with no password yet (accepts the invite); reset and change revoke every refresh token; change returns new tokens, wrong current password is 422 `CurrentPasswordIncorrect`, endpoint under `/v1/auth/` for the rate limit; `PasswordChanged` email after both, 2026-11-17.
 - Cross-cutting: `InternalError` (500) and `RequestRejected` (other HTTP-level 4xx such as 405, 413, 415; added 2026-11-17 after code review) added to the error codes; access tokens carry exactly the ADR 0010 claims; `X-Correlation-Id` header; built-in JSON console logging and DataAnnotations validation, no extra libraries, 2026-11-17.
 - Outbox writer (T5): typed C# event records (`Events/`); `OutboxWriter.Add` only stages the row in the caller's DbContext, so the caller's SaveChanges and transaction decide whether it is written; correlation ID is the explicit argument, else the request's `X-Correlation-Id`, else a new ID; `eventId` = `outbox.id`, a version-7 GUID; `occurredAt` = `created_at`, written with milliseconds and `Z`; camelCase JSON, string enums, null fields kept; non-UTC times throw (R2). Payloads are checked against `specs/events/` in tests only, with Corvus.Json.Validator (Apache-2.0; JsonSchema.Net was passed over because of its maintenance-fee EULA), 2026-11-18.
+- Admin and owner creation (T6): the admin script is a command in the API binary (`dotnet BookingPlatform.Api.dll admin grant <email> [--granted-by <email>] | revoke <email> | list`), run in production as a one-off ECS task; users named by email must have an account; bootstrap only while there are no admins; revoking the last admin is refused; granting an existing admin is a no-op. `POST /v1/admin/owners`: non-admin 403; an existing account with no password gets a new invite (inviteId set); races give 409 `AlreadyOwner`; 201 with `Location`; no staff row for the owner; a new account takes the business's time zone; business names are trimmed like person names, 2026-11-18.
 
 ## Decisions needed
 
@@ -52,11 +53,13 @@ If a new one comes up, add it here with the task it blocks, and record the answe
   Done when: tests show an event is written if and only if its transaction commits, and every payload validates against its JSON Schema.
   Notes: `OutboxWriter.Add` only stages the row, so a missing SaveChanges loses the event silently. Every task that emits an event tests that its outbox row exists after the request and that its payload validates (`EventSchemas` in the test projects). Payloads are checked in tests only, so a bad payload would otherwise first fail in the worker.
 
-- [ ] **T6. Admin creates owners.** Operator script to grant and revoke admin (`platform_admins`); a grant names an existing admin as `granted_by`, except the first (bootstrap) admin. `POST /v1/admin/owners`, creating the user and invite when needed and emitting `AccessGranted`.
+- [x] **T6. Admin creates owners.** Operator script to grant and revoke admin (`platform_admins`); a grant names an existing admin as `granted_by`, except the first (bootstrap) admin. `POST /v1/admin/owners`, creating the user and invite when needed and emitting `AccessGranted`.
   Acceptance: story "Admin creates an owner and their business"; admin authorization (`specs/07-nfr.md`).
+  How to run the script: `dotnet BookingPlatform.Api.dll admin grant|revoke|list ...` (with `ASPNETCORE_ENVIRONMENT=Development` locally); exit codes 0 done or nothing to change, 1 refused, 2 usage, 3 failed unexpectedly (e.g. database unreachable). Logs go to stderr at Warning in this mode, so stdout is only the script's output; each grant and revoke is logged there as an audit line with user IDs only (no emails).
 
 - [ ] **T7. Invites.** `POST /v1/auth/accept-invite` and `POST /v1/users/{userId}/resend-invite`. Tests insert the token hash directly, standing in for the worker (T26).
   Acceptance: story "Invited user sets their password" (expiry, single use, only the newest link works, `InviteNotPending`).
+  Note: T6 can leave an older, still-valid invite beside a new one (an account invited as staff that is then made an owner). Test that the older link stops working once a newer invite exists. "Newest" is by `created_at`; break ties consistently (e.g. by `id`).
 
 - [ ] **T7a. Password recovery and change.** `POST /v1/auth/forgot-password`, `POST /v1/auth/reset-password` and `POST /v1/auth/change-password`; the `password_resets` migration (and the new `notifications.kind` values); `PasswordResetRequested` and `PasswordChanged` events through the outbox (T5). Tests insert the token hash directly, standing in for the worker (T26).
   Acceptance: stories "User can recover a forgotten password" (same reply whether or not the account exists, 5-minute cooldown, 1-hour single-use link, only the newest works, an account without a password accepts its invite this way) and "User can change their password" (`CurrentPasswordIncorrect`); both revoke every refresh token; `ResetLinkInvalid`.
@@ -126,6 +129,7 @@ If a new one comes up, add it here with the task it blocks, and record the answe
 
 - [ ] **T26. Invite and account emails.** `AccessGranted` handling: token generation, hash and 7-day expiry on `user_invites`, a new token on re-send, never logging the raw token, and the AccessGranted email when there is no invite. `PasswordResetRequested` handling the same way on `password_resets` with a 1-hour expiry, and the `PasswordChanged` email. Uses a database user limited as in `specs/07-nfr.md`.
   Acceptance: worker handling table; invite stories (end to end with T7); recovery story (end to end with T7a).
+  Note: `AccessGranted` with `role: Owner` and an `inviteId` (from T6: a new owner, or an existing account without a password made owner) needs owner wording in the invite email, distinct from a staff invite.
 
 ## Infrastructure and later
 
@@ -133,6 +137,7 @@ If a new one comes up, add it here with the task it blocks, and record the answe
   Done when: one command deploys a working environment, and a booking made through the API produces a confirmation email.
   Configure trusted forwarded headers (the load balancer's network) so rate limiting sees real client IPs, and make sure the API image has time zone data (tzdata) for IANA names.
   Before the first deployment: squash the EF Core migrations into one `InitialSchema` (ADR 0006). Do it once, after every task branch is merged. Copy across any hand-written `migrationBuilder.Sql` (e.g. the worker's database user), and drop and recreate any database that applied the old migrations. The schema tests must pass afterwards. Once any environment is deployed, migrations are never squashed again.
+  Admin script in production: run `admin grant|revoke|list` as a one-off ECS task from the API image with the command overridden (e.g. `dotnet BookingPlatform.Api.dll admin list`) and the database secret from Secrets Manager; document it in the runbook. The first admin needs an existing account, so the operator signs up through the API before the bootstrap grant. Grant and revoke audit lines go to CloudWatch with the task's logs (stderr).
 
 - [ ] **T28. Slot query performance.** A repeatable test that a 30-day slot query meets p95 under 300 ms (`specs/07-nfr.md`) on realistic data; fix any shortfall.
 

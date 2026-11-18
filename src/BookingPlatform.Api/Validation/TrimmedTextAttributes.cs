@@ -36,3 +36,16 @@ public sealed class PersonNameAttribute() : ValidationAttribute("Must be 1-200 c
     public override bool IsValid(object? value) =>
         value is null || (value is string text && text.Trim().Length is > 0 and <= MaxLength);
 }
+
+/// <summary>
+/// A business name, checked after trimming surrounding whitespace (the API stores it trimmed):
+/// 1-200 characters. Null passes.
+/// </summary>
+[AttributeUsage(AttributeTargets.Property | AttributeTargets.Parameter)]
+public sealed class BusinessNameAttribute() : ValidationAttribute("Must be 1-200 characters, not counting surrounding spaces.")
+{
+    public const int MaxLength = 200;
+
+    public override bool IsValid(object? value) =>
+        value is null || (value is string text && text.Trim().Length is > 0 and <= MaxLength);
+}

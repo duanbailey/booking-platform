@@ -13,6 +13,11 @@ Then a business is created with that account as its owner and default settings
 And the owner is emailed that they now own the business.
 
 Scenario: Given an admin is logged in
+When they create an owner with an email that belongs to an account that has no password yet and does not own a business
+Then a business is created with that account as its owner and default settings
+And a new invite email is sent to the owner to set their password, and only the newest link works.
+
+Scenario: Given an admin is logged in
 When they create an owner with an email that belongs to an account that already owns a business
 Then the creation is refused, and they are told that account already owns a business
 And nothing changes.
