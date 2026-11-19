@@ -97,3 +97,42 @@ public sealed partial class PriceAttribute() : ValidationAttribute("Must be an a
     [System.Text.RegularExpressions.GeneratedRegex(@"\A[0-9]+(\.[0-9]{1,2})?\z")] // \z: no trailing newline
     private static partial System.Text.RegularExpressions.Regex Pattern();
 }
+
+/// <summary>
+/// A local time of day, 24-hour HH:mm from 00:00 to 23:59 (LocalTime in specs/04-api.openapi.yaml;
+/// no 24:00, decided 2026-11-19). Null passes.
+/// </summary>
+public sealed partial class LocalTimeAttribute() : ValidationAttribute("Must be a time like 09:30 (HH:mm, 00:00-23:59).")
+{
+    public override bool IsValid(object? value) => value is null || (value is string text && TryParse(text, out _));
+
+    public static bool TryParse(string? text, out TimeOnly time)
+    {
+        time = default;
+        return text is not null && Pattern().IsMatch(text)
+            && TimeOnly.TryParseExact(text, "HH:mm", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out time);
+    }
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"\A([01][0-9]|2[0-3]):[0-5][0-9]\z")]
+    private static partial System.Text.RegularExpressions.Regex Pattern();
+}
+
+/// <summary>
+/// A local date, strictly yyyy-MM-dd (format: date in specs/04-api.openapi.yaml). ASP.NET's own
+/// date binding also accepts "12/24/2026", "Dec 24 2026" or a time of day, so date query and path
+/// parameters are bound as strings and parsed here. Null passes; an empty string does not.
+/// </summary>
+public sealed partial class LocalDateAttribute() : ValidationAttribute("Must be a date like 2026-12-24.")
+{
+    public override bool IsValid(object? value) => value is null || (value is string text && TryParse(text, out _));
+
+    public static bool TryParse(string? text, out DateOnly date)
+    {
+        date = default;
+        return text is not null && Pattern().IsMatch(text)
+            && DateOnly.TryParseExact(text, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out date);
+    }
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"\A[0-9]{4}-[0-9]{2}-[0-9]{2}\z")]
+    private static partial System.Text.RegularExpressions.Regex Pattern();
+}

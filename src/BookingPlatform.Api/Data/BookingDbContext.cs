@@ -57,7 +57,18 @@ public class BookingDbContext(DbContextOptions<BookingDbContext> options) : DbCo
     {
         // R2: every timestamp is stored and read as UTC.
         configurationBuilder.Properties<DateTime>().HaveConversion<UtcDateTimeConverter>();
+        // Local dates and times of day (R8) are DATE and TIME columns. Oracle's MySQL provider writes
+        // DateOnly and TimeOnly but reads them back as DateTime and TimeSpan, so map through those
+        // types both ways (T11). The column types stay as InitialSchema created them.
+        configurationBuilder.Properties<TimeOnly>().HaveConversion<TimeOnlyToTimeSpanConverter>().HaveColumnType("time");
+        configurationBuilder.Properties<DateOnly>().HaveConversion<DateOnlyToDateTimeConverter>().HaveColumnType("date");
     }
+
+    private sealed class TimeOnlyToTimeSpanConverter() : ValueConverter<TimeOnly, TimeSpan>(
+        t => t.ToTimeSpan(), s => TimeOnly.FromTimeSpan(s));
+
+    private sealed class DateOnlyToDateTimeConverter() : ValueConverter<DateOnly, DateTime>(
+        d => d.ToDateTime(TimeOnly.MinValue), dt => DateOnly.FromDateTime(dt));
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

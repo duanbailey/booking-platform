@@ -121,7 +121,7 @@ public sealed class ServicesController(BookingDbContext db, TimeProvider time) :
     {
         if (!await db.Businesses.AnyAsync(b => b.Id == businessId, ct)) throw ApiException.NotFound();
 
-        var after = page.After;
+        var after = page.AfterNameId();
         var query = after is null
             ? db.Services.Where(s => s.BusinessId == businessId)
             // Keyset: rows after the cursor in (name, id) order, compared by the columns' collation.
@@ -132,7 +132,7 @@ public sealed class ServicesController(BookingDbContext db, TimeProvider time) :
             .Take(page.Limit + 1)
             .ToListAsync(ct);
 
-        return PageBuilder.From(fetched, page.Limit, s => new NameIdCursor(s.Name, s.Id), ServiceResponse.From);
+        return PageBuilder.From(fetched, page.Limit, s => new NameIdCursor(s.Name, s.Id).Encode(), ServiceResponse.From);
     }
 
     /// <summary>Owner only. The new service has no staff yet; Location is its URL.</summary>

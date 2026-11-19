@@ -218,3 +218,48 @@ Content-Type: application/json
 {
   "serviceIds": ["{{createService.response.body.id}}"]
 }
+
+### Weekly availability (T11): the owner and the business's staff may view; staff set their own, the owner
+### anyone's. Times are local HH:mm (00:00-23:59) in the business's time zone; blocks on a day can't overlap.
+@staffId = {{addStaff.response.body.staffId}}
+GET {{BookingPlatform.Api_HostAddress}}/v1/staff/{{staffId}}/weekly-availability
+Authorization: Bearer {{login.response.body.accessToken}}
+
+### Replace the whole week (T11). An empty "blocks" list clears it.
+PUT {{BookingPlatform.Api_HostAddress}}/v1/staff/{{staffId}}/weekly-availability
+Authorization: Bearer {{login.response.body.accessToken}}
+Content-Type: application/json
+
+{
+  "blocks": [
+    { "dayOfWeek": "Monday", "startLocal": "09:00", "endLocal": "12:00" },
+    { "dayOfWeek": "Monday", "startLocal": "13:00", "endLocal": "17:00" },
+    { "dayOfWeek": "Saturday", "startLocal": "10:00", "endLocal": "14:00" }
+  ]
+}
+
+### Date exception (T11): different hours for one date ...
+PUT {{BookingPlatform.Api_HostAddress}}/v1/staff/{{staffId}}/date-exceptions/2026-12-24
+Authorization: Bearer {{login.response.body.accessToken}}
+Content-Type: application/json
+
+{
+  "ranges": [{ "startLocal": "09:00", "endLocal": "12:00" }]
+}
+
+### ... or none at all
+PUT {{BookingPlatform.Api_HostAddress}}/v1/staff/{{staffId}}/date-exceptions/2026-12-25
+Authorization: Bearer {{login.response.body.accessToken}}
+Content-Type: application/json
+
+{
+  "unavailable": true
+}
+
+### List date exceptions (T11), one item per date; from and to are inclusive local dates
+GET {{BookingPlatform.Api_HostAddress}}/v1/staff/{{staffId}}/date-exceptions?from=2026-12-01&to=2026-12-31
+Authorization: Bearer {{login.response.body.accessToken}}
+
+### Remove a date exception (T11): 204, or 404 if that date has none
+DELETE {{BookingPlatform.Api_HostAddress}}/v1/staff/{{staffId}}/date-exceptions/2026-12-24
+Authorization: Bearer {{login.response.body.accessToken}}

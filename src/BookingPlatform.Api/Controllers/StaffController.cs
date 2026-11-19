@@ -48,7 +48,7 @@ public sealed class StaffController(BookingDbContext db, OutboxWriter outbox, Ti
         if (!await db.Businesses.AnyAsync(b => b.Id == businessId, ct)) throw ApiException.NotFound();
 
         var take = page.Limit + 1;
-        var after = page.After;
+        var after = page.AfterNameId();
         var rows = after is null
             ? await db.Database.SqlQuery<StaffRow>($"""
                 SELECT s.id AS StaffId, u.name AS Name FROM staff s JOIN users u ON u.id = s.user_id
@@ -62,7 +62,7 @@ public sealed class StaffController(BookingDbContext db, OutboxWriter outbox, Ti
                 ORDER BY u.name, s.id LIMIT {take}
                 """).ToListAsync(ct);
 
-        return PageBuilder.From(rows, page.Limit, r => new NameIdCursor(r.Name, r.StaffId), r => new StaffSummaryResponse(r.StaffId, r.Name));
+        return PageBuilder.From(rows, page.Limit, r => new NameIdCursor(r.Name, r.StaffId).Encode(), r => new StaffSummaryResponse(r.StaffId, r.Name));
     }
 
     /// <summary>

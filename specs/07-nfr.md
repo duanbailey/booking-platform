@@ -28,6 +28,7 @@ The API checks these links on every request, so a change (e.g. a staff member re
 | Create and edit services | No | No | Yes |
 | Add and remove staff (removal under R6); assign staff to services | No | No | Yes |
 | Resend a staff member's invite | No | No | Yes |
+| View weekly availability and date exceptions (customers see open slots instead) | No | Any staff in their business | Any staff in the business |
 | Set weekly availability and date exceptions (R8) | No | Their own | Any staff in the business |
 | Block time off (R6) | No | Their own | Any staff in the business |
 | Create a booking | For themselves | For a customer, with themselves as the staff member | For a customer, with any staff in the business |
