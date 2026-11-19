@@ -14,10 +14,11 @@ refresh_tokens holds refresh tokens for login sessions (id, user_id, family_id, 
 - Admin: a platform_admins row (user_id primary key, granted_by, granted_at). Admin is platform-wide, not tied to a business. Rows are added and removed by an operator script, never through the API, and removing a row revokes the role. granted_by references users: the script must name an existing admin as the granter, and only the first (bootstrap) admin has granted_by null. The script is a command in the API binary (`admin grant|revoke|list`); it names users by email, and they must already have an account; a bootstrap grant works only while there are no admins; revoking the last admin is refused; granting an existing admin changes nothing (decided 2026-11-18). There is no seeded default or system account (decided 2026-11-16).
 businesses holds each business (id, name, owner_user_id, created_at) and its settings, each with a default:
 - time_zone: IANA time zone string, required, no default (R2).
-- min_notice_minutes: minimum notice period, default 120 (R3).
-- cancellation_window_hours: the cancellation window N, default 24 (R4).
-- max_advance_days: maximum advance-booking window, default 21, no upper limit (R8, [ADR 0005](../docs/adr/0005-limit-slot-query-range.md)).
-- slot_step_minutes: slot step, default 30 (R8).
+- min_notice_minutes: minimum notice period, default 120, 0 to 525600 (one year) (R3).
+- cancellation_window_hours: the cancellation window N, default 24, 0 to 8760 (one year) (R4).
+- max_advance_days: maximum advance-booking window, default 21, 1 to 3650 (R8). Not capped for performance ([ADR 0005](../docs/adr/0005-limit-slot-query-range.md)); the 10-year ceiling only keeps date arithmetic in range.
+- slot_step_minutes: slot step, default 30, 1 to 1440 (one day) (R8).
+The maxima were decided 2026-11-19 and are enforced by the API (400) and by database check constraints.
 Settings are read when a slot is generated or a booking is made or rescheduled; changing them never rewrites existing bookings.
 bookings.status is either Confirmed or Cancelled. A booking is created Confirmed; cancelling it sets it to Cancelled and sets cancelled_at, cancelled_by and cancellation_reason. cancelled_by is the user who cancelled (the customer, staff member or owner; for R6, whoever confirmed the time off). cancellation_reason is one of CustomerCancelled, BusinessCancelled (a staff member or owner cancelled the booking directly), TimeOff (confirmed time off overlapped the booking, R6), AvailabilityChanged (a confirmed date exception, weekly availability change or business time zone change left the booking outside availability, R2, R6 and R8), or StaffRemoved (the owner confirmed removing the booking's staff member, R6). All three columns are null while the booking is Confirmed and required once it is Cancelled. Cancelled is final. Only Confirmed bookings are active: they alone count for overlap (R1, R7) and block slot generation (R8). A reschedule keeps the booking Confirmed.
 

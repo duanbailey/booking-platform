@@ -18,6 +18,8 @@ public static class ErrorResponses
         options.Converters.Add(new JsonStringEnumConverter(allowIntegerValues: false));
         // Request bodies in the spec set additionalProperties: false.
         options.UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow;
+        // Integers in the spec are JSON numbers; the web defaults would also accept "30" (T8).
+        options.NumberHandling = JsonNumberHandling.Strict;
     }
 
     private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();

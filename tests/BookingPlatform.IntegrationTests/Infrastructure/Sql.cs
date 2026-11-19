@@ -81,6 +81,16 @@ public sealed class Sql(string connectionString)
         return held;
     }
 
+    /// <summary>Like <see cref="LockUserRowAsync"/>, for the row with this id in any table.</summary>
+    public async Task<HeldLock> LockRowAsync(string table, Guid id)
+    {
+        var connection = new MySqlConnection(connectionString);
+        await connection.OpenAsync();
+        var held = new HeldLock(connection, await connection.BeginTransactionAsync());
+        await held.ExecuteAsync($"SELECT id FROM {table} WHERE id = @id FOR UPDATE", new { id });
+        return held;
+    }
+
     public sealed class HeldLock(MySqlConnection connection, MySqlTransaction transaction) : IAsyncDisposable
     {
         private bool _committed;

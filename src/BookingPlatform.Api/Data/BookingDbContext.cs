@@ -111,10 +111,14 @@ public class BookingDbContext(DbContextOptions<BookingDbContext> options) : DbCo
         {
             e.ToTable("businesses", t =>
             {
-                t.HasCheckConstraint("ck_businesses_min_notice", "min_notice_minutes >= 0");               // R3
-                t.HasCheckConstraint("ck_businesses_cancellation_window", "cancellation_window_hours >= 0"); // R4
-                t.HasCheckConstraint("ck_businesses_max_advance", "max_advance_days >= 1");                 // R8
-                t.HasCheckConstraint("ck_businesses_slot_step", "slot_step_minutes >= 1");                  // R8
+                t.HasCheckConstraint("ck_businesses_min_notice",
+                    $"min_notice_minutes BETWEEN 0 AND {BusinessLimits.MaxMinNoticeMinutes}");               // R3
+                t.HasCheckConstraint("ck_businesses_cancellation_window",
+                    $"cancellation_window_hours BETWEEN 0 AND {BusinessLimits.MaxCancellationWindowHours}"); // R4
+                t.HasCheckConstraint("ck_businesses_max_advance",
+                    $"max_advance_days BETWEEN 1 AND {BusinessLimits.MaxMaxAdvanceDays}");                   // R8
+                t.HasCheckConstraint("ck_businesses_slot_step",
+                    $"slot_step_minutes BETWEEN 1 AND {BusinessLimits.MaxSlotStepMinutes}");                 // R8
             });
             e.Property(x => x.Name).HasMaxLength(200);
             e.Property(x => x.TimeZone).HasMaxLength(64);

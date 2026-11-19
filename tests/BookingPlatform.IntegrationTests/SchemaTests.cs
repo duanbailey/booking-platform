@@ -191,6 +191,10 @@ public class SchemaTests(TestDatabase database) : IClassFixture<TestDatabase>
     [InlineData("cancellation_window_hours", -1)]
     [InlineData("max_advance_days", 0)]
     [InlineData("slot_step_minutes", 0)]
+    [InlineData("min_notice_minutes", 525601)]     // T8 maxima, decided 2026-11-19
+    [InlineData("cancellation_window_hours", 8761)]
+    [InlineData("max_advance_days", 3651)]
+    [InlineData("slot_step_minutes", 1441)]
     public async Task Business_settings_outside_their_range_are_rejected(string column, int value)
     {
         var business = await _sql.InsertBusinessAsync();

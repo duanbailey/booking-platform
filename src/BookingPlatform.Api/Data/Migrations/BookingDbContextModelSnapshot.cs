@@ -298,13 +298,13 @@ namespace BookingPlatform.Api.Data.Migrations
 
                     b.ToTable("businesses", null, t =>
                         {
-                            t.HasCheckConstraint("ck_businesses_cancellation_window", "cancellation_window_hours >= 0");
+                            t.HasCheckConstraint("ck_businesses_cancellation_window", "cancellation_window_hours BETWEEN 0 AND 8760");
 
-                            t.HasCheckConstraint("ck_businesses_max_advance", "max_advance_days >= 1");
+                            t.HasCheckConstraint("ck_businesses_max_advance", "max_advance_days BETWEEN 1 AND 3650");
 
-                            t.HasCheckConstraint("ck_businesses_min_notice", "min_notice_minutes >= 0");
+                            t.HasCheckConstraint("ck_businesses_min_notice", "min_notice_minutes BETWEEN 0 AND 525600");
 
-                            t.HasCheckConstraint("ck_businesses_slot_step", "slot_step_minutes >= 1");
+                            t.HasCheckConstraint("ck_businesses_slot_step", "slot_step_minutes BETWEEN 1 AND 1440");
                         });
                 });
 

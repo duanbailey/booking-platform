@@ -135,3 +135,22 @@ Content-Type: application/json
   "currentPassword": "{{password}}",
   "newPassword": "{{password}}"
 }
+
+### A business and its settings (T8): any signed-in user. Put a business ID here (the "id" from creating an
+### owner above, ownedBusinessId in GET /v1/me as the owner, or SELECT id FROM businesses).
+@businessId = 00000000-0000-0000-0000-000000000000
+GET {{BookingPlatform.Api_HostAddress}}/v1/businesses/{{businessId}}
+Authorization: Bearer {{login.response.body.accessToken}}
+
+### Change the business's name or settings (T8): owner only, 403 for anyone else. As written this uses the
+### {{email}} login above, so set @email and @password to the owner's (e.g. olive@example.test with the password
+### set through accept-invite) and send the login request again first. Send only what changes.
+### Limits: minNoticeMinutes 0-525600, cancellationWindowHours 0-8760, maxAdvanceDays 1-3650, slotStepMinutes 1-1440.
+PATCH {{BookingPlatform.Api_HostAddress}}/v1/businesses/{{businessId}}/settings
+Authorization: Bearer {{login.response.body.accessToken}}
+Content-Type: application/json
+
+{
+  "minNoticeMinutes": 60,
+  "slotStepMinutes": 15
+}

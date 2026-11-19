@@ -91,6 +91,19 @@ public static class BusinessDefaults
     public const int SlotStepMinutes = 30;         // R8
 }
 
+/// <summary>
+/// The range of each business setting (specs/05-data-model.md businesses). The maxima only
+/// keep date arithmetic in range (decided 2026-11-19); the advance-booking window is not capped
+/// for performance (ADR 0005).
+/// </summary>
+public static class BusinessLimits
+{
+    public const int MaxMinNoticeMinutes = 525_600;     // one year, R3
+    public const int MaxCancellationWindowHours = 8_760; // one year, R4
+    public const int MaxMaxAdvanceDays = 3_650;          // ten years, R8
+    public const int MaxSlotStepMinutes = 1_440;         // one day, R8
+}
+
 public class Service
 {
     public Guid Id { get; set; }

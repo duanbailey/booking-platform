@@ -16,7 +16,7 @@ The performance target in specs/07-nfr.md is a slot query p95 under 300 ms for a
 
 ## Decision
 
-A slot query's date range can cover at most 30 days. A request for a longer range is rejected with HTTP 400, and the error states the maximum. The advance-booking window has no upper limit.
+A slot query's date range can cover at most 30 days. A request for a longer range is rejected with HTTP 400, and the error states the maximum. The advance-booking window is not capped for performance. (Amended 2026-11-19: it has a sanity ceiling of 3650 days, so date arithmetic stays in range; that is far beyond any real booking horizon and does not change this decision.)
 
 A range that extends past the advance-booking window, or into the past, is not an error: R8 already means no slots are returned for those times.
 
