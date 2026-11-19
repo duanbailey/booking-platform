@@ -82,6 +82,18 @@ public class RegisterTests(ApiFixture fixture) : IClassFixture<ApiFixture>
     }
 
     [Fact]
+    public async Task Email_differing_only_in_accents_is_a_different_account()
+    {
+        // specs/05-data-model.md: emails are compared ignoring case but not accents.
+        var suffix = Guid.NewGuid().ToString("N");
+        await fixture.RegisterAsync($"ann-{suffix}@example.test");
+
+        await Json.ReadAsync(await Register(Valid($"ánn-{suffix}@example.test")), HttpStatusCode.Created);
+        await Json.ErrorAsync(await fixture.Api.CreateClient().PostJsonAsync("/v1/auth/login",
+            new { email = $"ánn-{suffix}@example.test", password = "wrong for this account" }), HttpStatusCode.Unauthorized, "InvalidCredentials");
+    }
+
+    [Fact]
     public async Task Email_of_an_invited_account_without_a_password_is_taken_too()
     {
         var email = ApiFixture.NewEmail();

@@ -58,6 +58,27 @@ public class SchemaTests(TestDatabase database) : IClassFixture<TestDatabase>
     }
 
     [Fact]
+    public async Task Email_uses_the_case_insensitive_accent_sensitive_collation()
+    {
+        // specs/05-data-model.md: utf8mb4_0900_as_ci. Oracle's EF provider drops column
+        // collations from migrations, so this is set with explicit SQL (FixEmailCollation).
+        Assert.Equal("utf8mb4_0900_as_ci", await _sql.ScalarAsync(
+            "SELECT COLLATION_NAME FROM information_schema.COLUMNS " +
+            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'email'"));
+    }
+
+    [Fact]
+    public async Task Emails_differing_only_in_accents_are_distinct()
+    {
+        var suffix = Guid.NewGuid().ToString("N");
+        await _sql.InsertUserAsync($"ann-{suffix}@example.test");
+        await _sql.InsertUserAsync($"ánn-{suffix}@example.test"); // no duplicate-key error
+
+        Assert.Equal(1L, Convert.ToInt64(await _sql.ScalarAsync(
+            "SELECT COUNT(*) FROM users WHERE email = @email", new { email = $"ANN-{suffix}@example.test" })));
+    }
+
+    [Fact]
     public async Task User_without_password_hash_is_allowed_until_invite_is_accepted()
     {
         var user = await _sql.InsertUserAsync();
