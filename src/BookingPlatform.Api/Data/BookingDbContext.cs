@@ -135,14 +135,18 @@ public class BookingDbContext(DbContextOptions<BookingDbContext> options) : DbCo
         {
             e.ToTable("services", t =>
             {
-                t.HasCheckConstraint("ck_services_duration", "duration_minutes >= 1");
-                t.HasCheckConstraint("ck_services_buffers", "buffer_before_minutes >= 0 AND buffer_after_minutes >= 0");
+                t.HasCheckConstraint("ck_services_duration",
+                    $"duration_minutes BETWEEN 1 AND {ServiceLimits.MaxDurationMinutes}");
+                t.HasCheckConstraint("ck_services_buffers",
+                    $"buffer_before_minutes BETWEEN 0 AND {ServiceLimits.MaxBufferMinutes} " +
+                    $"AND buffer_after_minutes BETWEEN 0 AND {ServiceLimits.MaxBufferMinutes}");
                 t.HasCheckConstraint("ck_services_price", "price >= 0");
             });
             e.Property(x => x.Name).HasMaxLength(200);
             e.Property(x => x.Description).HasMaxLength(2000);
             e.Property(x => x.Price).HasPrecision(10, 2);
             e.HasOne<Business>().WithMany().HasForeignKey(x => x.BusinessId).OnDelete(DeleteBehavior.Restrict);
+            e.HasIndex(x => new { x.BusinessId, x.Name, x.Id }); // the service list's order and keyset (T9)
         });
 
         modelBuilder.Entity<Staff>(e =>

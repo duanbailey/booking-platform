@@ -556,13 +556,13 @@ namespace BookingPlatform.Api.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("BusinessId");
+                    b.HasIndex("BusinessId", "Name", "Id");
 
                     b.ToTable("services", null, t =>
                         {
-                            t.HasCheckConstraint("ck_services_buffers", "buffer_before_minutes >= 0 AND buffer_after_minutes >= 0");
+                            t.HasCheckConstraint("ck_services_buffers", "buffer_before_minutes BETWEEN 0 AND 1440 AND buffer_after_minutes BETWEEN 0 AND 1440");
 
-                            t.HasCheckConstraint("ck_services_duration", "duration_minutes >= 1");
+                            t.HasCheckConstraint("ck_services_duration", "duration_minutes BETWEEN 1 AND 1440");
 
                             t.HasCheckConstraint("ck_services_price", "price >= 0");
                         });

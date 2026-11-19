@@ -104,6 +104,14 @@ public static class BusinessLimits
     public const int MaxSlotStepMinutes = 1_440;         // one day, R8
 }
 
+/// <summary>The range of a service's duration and buffers (decided 2026-11-19; price: PriceAttribute).</summary>
+public static class ServiceLimits
+{
+    /// <summary>Availability blocks lie within a day and bound the appointment (R8).</summary>
+    public const int MaxDurationMinutes = 1_440;
+    public const int MaxBufferMinutes = 1_440;
+}
+
 public class Service
 {
     public Guid Id { get; set; }

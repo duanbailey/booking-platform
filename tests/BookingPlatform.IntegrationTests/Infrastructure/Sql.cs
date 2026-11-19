@@ -118,13 +118,13 @@ public sealed class Sql(string connectionString)
     // ------------------------------------------------------------ Seed rows
 
     /// <summary>Inserts a user; with no <paramref name="passwordHash"/> the account has no password (invited).</summary>
-    public async Task<Guid> InsertUserAsync(string? email = null, string? passwordHash = null)
+    public async Task<Guid> InsertUserAsync(string? email = null, string? passwordHash = null, string name = "Test User")
     {
         var id = Guid.NewGuid();
         await ExecuteAsync(
             "INSERT INTO users (id, email, password_hash, name, time_zone, created_at) " +
-            "VALUES (@id, @email, @passwordHash, 'Test User', 'Europe/London', @now)",
-            new { id, email = email ?? $"{id:N}@example.test", passwordHash, now = Now });
+            "VALUES (@id, @email, @passwordHash, @name, 'Europe/London', @now)",
+            new { id, email = email ?? $"{id:N}@example.test", passwordHash, name, now = Now });
         return id;
     }
 
@@ -208,16 +208,19 @@ public sealed class Sql(string connectionString)
         return id;
     }
 
-    public async Task<Guid> InsertServiceAsync(Guid businessId)
+    public async Task<Guid> InsertServiceAsync(Guid businessId, string name = "Haircut", Guid? id = null)
     {
-        var id = Guid.NewGuid();
+        var serviceId = id ?? Guid.NewGuid();
         await ExecuteAsync(
             "INSERT INTO services (id, business_id, name, duration_minutes, buffer_before_minutes, " +
             "buffer_after_minutes, description, price, created_at) " +
-            "VALUES (@id, @businessId, 'Haircut', 60, 15, 15, NULL, 45.00, @now)",
-            new { id, businessId, now = Now });
-        return id;
+            "VALUES (@serviceId, @businessId, @name, 60, 15, 15, NULL, 45.00, @now)",
+            new { serviceId, businessId, name, now = Now });
+        return serviceId;
     }
+
+    public Task AssignStaffToServiceAsync(Guid staffId, Guid serviceId) =>
+        ExecuteAsync("INSERT INTO staff_services (staff_id, service_id) VALUES (@staffId, @serviceId)", new { staffId, serviceId });
 
     public Task RemoveStaffAsync(Guid staffId) =>
         ExecuteAsync("UPDATE staff SET removed_at = @now WHERE id = @staffId", new { staffId, now = Now });

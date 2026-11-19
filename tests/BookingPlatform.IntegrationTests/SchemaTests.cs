@@ -230,6 +230,9 @@ public class SchemaTests(TestDatabase database) : IClassFixture<TestDatabase>
     [InlineData("duration_minutes", 0)]
     [InlineData("buffer_before_minutes", -1)]
     [InlineData("buffer_after_minutes", -1)]
+    [InlineData("duration_minutes", 1441)]      // T9 maxima, decided 2026-11-19
+    [InlineData("buffer_before_minutes", 1441)]
+    [InlineData("buffer_after_minutes", 1441)]
     public async Task Service_durations_outside_their_range_are_rejected(string column, int value)
     {
         var service = await _sql.InsertServiceAsync(await _sql.InsertBusinessAsync());
@@ -422,6 +425,17 @@ public class SchemaTests(TestDatabase database) : IClassFixture<TestDatabase>
     }
 
     // ------------------------------------------------------------ Outbox and notifications
+
+    [Fact]
+    public async Task Services_have_an_index_for_the_list_order()
+    {
+        // T9: GET /v1/businesses/{id}/services filters by business and orders by (name, id).
+        var columns = await _sql.ScalarAsync(
+            "SELECT GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX) FROM information_schema.STATISTICS " +
+            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'services' " +
+            "GROUP BY INDEX_NAME HAVING GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX) = 'business_id,name,id'");
+        Assert.Equal("business_id,name,id", columns);
+    }
 
     [Fact]
     public async Task Each_event_notifies_each_recipient_at_most_once()

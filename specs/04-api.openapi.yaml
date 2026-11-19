@@ -11,7 +11,11 @@
 # Errors: one shared error shape: code, message, rule (business rule ID or null)
 #   and details.
 # Pagination: cursor-based for list endpoints (?limit=&cursor=, response
-#   { items, nextCursor }).
+#   { items, nextCursor }). Each list endpoint states its order, always ending
+#   with id so it is total. The cursor is opaque (it encodes the last item's
+#   sort key); one that cannot be decoded, or a limit outside 1-200, is 400
+#   ValidationFailed naming the parameter. An item changed while paging (e.g.
+#   renamed) may be skipped or repeated (decided 2026-11-19).
 # Versioning: /v1/ prefix
 # Confirm-before-acting (R2, R4, R6): see the ConfirmationRequired response.
 
@@ -657,7 +661,7 @@ paths:
       tags: [Services]
       operationId: listServices
       summary: Services offered by a business
-      description: Any signed-in user.
+      description: Any signed-in user. Ordered by name (ignoring case and accents), then id.
       parameters:
         - $ref: '#/components/parameters/BusinessId'
         - $ref: '#/components/parameters/Limit'
@@ -681,7 +685,9 @@ paths:
       tags: [Services]
       operationId: createService
       summary: Create a service
-      description: Owner only.
+      description: |
+        Owner only. The new service has no staff yet (assigned through
+        `PUT /v1/staff/{staffId}/services`). Location gives the service's URL.
       parameters:
         - $ref: '#/components/parameters/BusinessId'
       requestBody:
@@ -733,6 +739,7 @@ paths:
       description: |
         Owner only. Duration and buffer changes affect new bookings and
         reschedules only; existing bookings keep their snapshot (R1, ADR 0004).
+        Only the fields sent change; null is allowed only for description.
       parameters:
         - $ref: '#/components/parameters/ServiceId'
       requestBody:
@@ -1575,21 +1582,33 @@ components:
       minLength: 1
       maxLength: 200
     ServiceName:
+      description: Surrounding whitespace is trimmed and the name stored trimmed; 1-200 characters after trimming.
       type: string
       minLength: 1
       maxLength: 200
     ServiceDescription:
-      description: Optional text shown to customers. Send null to clear it.
+      description: |
+        Optional text shown to customers, at most 2000 characters after trimming
+        surrounding whitespace. Send null to clear it; an empty or whitespace-only
+        description is stored as null too (decided 2026-11-19).
       type: [string, 'null']
       maxLength: 2000
     DurationMinutes:
+      description: |
+        At most one day: availability blocks lie within a day and bound the
+        appointment (R8), so a longer service could never be booked.
       type: integer
       minimum: 1
+      maximum: 1440
     BufferMinutes:
       type: integer
       minimum: 0
+      maximum: 1440
     Price:
-      description: Display only; payments are a non-goal.
+      description: |
+        Display only; payments are a non-goal. At most 99999999.99 (the column's
+        DECIMAL(10,2)). Responses always have two decimals, e.g. '45' is returned
+        as '45.00' (decided 2026-11-19).
       type: string
       pattern: '^[0-9]+(\.[0-9]{1,2})?$'
       examples: ['45.00']
@@ -1791,7 +1810,7 @@ components:
           required: [staff]
           properties:
             staff:
-              description: Assigned staff who are not removed.
+              description: Assigned staff who are not removed, ordered by name (ignoring case and accents), then staffId.
               type: array
               items: { $ref: '#/components/schemas/StaffSummary' }
 

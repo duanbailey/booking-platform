@@ -154,3 +154,40 @@ Content-Type: application/json
   "minNoticeMinutes": 60,
   "slotStepMinutes": 15
 }
+
+### Services of a business (T9): any signed-in user. Ordered by name, then id; pages of ?limit= (1-200,
+### default 50). Pass a page's nextCursor as ?cursor= for the next page; nextCursor is null on the last page.
+# @name services
+GET {{BookingPlatform.Api_HostAddress}}/v1/businesses/{{businessId}}/services?limit=2
+Authorization: Bearer {{login.response.body.accessToken}}
+
+### Create a service (T9): owner only, logged in as above. Price is a string, returned with two decimals.
+### durationMinutes 1-1440, buffers 0-1440, price at most 99999999.99; description optional (blank = none).
+# @name createService
+POST {{BookingPlatform.Api_HostAddress}}/v1/businesses/{{businessId}}/services
+Authorization: Bearer {{login.response.body.accessToken}}
+Content-Type: application/json
+
+{
+  "name": "Haircut",
+  "description": "Wash, cut and dry",
+  "durationMinutes": 60,
+  "bufferBeforeMinutes": 10,
+  "bufferAfterMinutes": 5,
+  "price": "45"
+}
+
+### A service and its assigned staff (T9): any signed-in user
+GET {{BookingPlatform.Api_HostAddress}}/v1/services/{{createService.response.body.id}}
+Authorization: Bearer {{login.response.body.accessToken}}
+
+### Change a service (T9): owner only; send only what changes, "description": null clears it.
+### Existing bookings keep their duration and buffers (ADR 0004).
+PATCH {{BookingPlatform.Api_HostAddress}}/v1/services/{{createService.response.body.id}}
+Authorization: Bearer {{login.response.body.accessToken}}
+Content-Type: application/json
+
+{
+  "price": "50",
+  "description": null
+}
