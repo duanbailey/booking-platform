@@ -27,6 +27,22 @@ public class UserInvite
     public DateTime CreatedAt { get; set; }
 }
 
+/// <summary>
+/// A password recovery link (T7a, specs/05-data-model.md password_resets). Works like
+/// <see cref="UserInvite"/>: the API inserts the row, the worker sets the token hash and the
+/// 1-hour expiry when it sends the email.
+/// </summary>
+public class PasswordReset
+{
+    public Guid Id { get; set; }
+    public Guid UserId { get; set; }
+    /// <summary>Set by the worker when it sends the email; the token itself is never stored.</summary>
+    public string? TokenHash { get; set; }
+    public DateTime? ExpiresAt { get; set; }
+    public DateTime? UsedAt { get; set; }
+    public DateTime CreatedAt { get; set; }
+}
+
 /// <summary>A refresh token for a login session (ADR 0010). Only the token's SHA-256 hash is stored.</summary>
 public class RefreshToken
 {
@@ -210,7 +226,7 @@ public class BookingHistory
 
 public enum NotificationKind
 {
-    Invite, AccessGranted, Confirmation, Rescheduled, Cancelled, LocalTimeChanged, RebookedInsideWindow,
+    Invite, AccessGranted, PasswordReset, PasswordChanged, Confirmation, Rescheduled, Cancelled, LocalTimeChanged, RebookedInsideWindow,
     Reminder24h, Reminder1h,
 }
 

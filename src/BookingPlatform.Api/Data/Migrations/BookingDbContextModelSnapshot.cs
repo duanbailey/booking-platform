@@ -329,7 +329,7 @@ namespace BookingPlatform.Api.Data.Migrations
 
                     b.Property<string>("Kind")
                         .IsRequired()
-                        .HasColumnType("enum('Invite','AccessGranted','Confirmation','Rescheduled','Cancelled','LocalTimeChanged','RebookedInsideWindow','Reminder24h','Reminder1h')")
+                        .HasColumnType("enum('Invite','AccessGranted','PasswordReset','PasswordChanged','Confirmation','Rescheduled','Cancelled','LocalTimeChanged','RebookedInsideWindow','Reminder24h','Reminder1h')")
                         .HasColumnName("kind");
 
                     b.Property<Guid>("RecipientUserId")
@@ -401,6 +401,44 @@ namespace BookingPlatform.Api.Data.Migrations
                     b.HasIndex("PublishedAt", "CreatedAt");
 
                     b.ToTable("outbox", (string)null);
+                });
+
+            modelBuilder.Entity("BookingPlatform.Api.Data.PasswordReset", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("char(36)")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTime?>("ExpiresAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("expires_at");
+
+                    b.Property<string>("TokenHash")
+                        .HasMaxLength(128)
+                        .HasColumnType("varchar(128)")
+                        .HasColumnName("token_hash");
+
+                    b.Property<DateTime?>("UsedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("used_at");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("char(36)")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
+
+                    b.HasIndex("UserId", "CreatedAt");
+
+                    b.ToTable("password_resets", (string)null);
                 });
 
             modelBuilder.Entity("BookingPlatform.Api.Data.PlatformAdmin", b =>
@@ -824,6 +862,15 @@ namespace BookingPlatform.Api.Data.Migrations
                     b.HasOne("BookingPlatform.Api.Data.User", null)
                         .WithMany()
                         .HasForeignKey("RecipientUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("BookingPlatform.Api.Data.PasswordReset", b =>
+                {
+                    b.HasOne("BookingPlatform.Api.Data.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });

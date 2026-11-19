@@ -36,8 +36,16 @@ public sealed class RefreshTokenService(BookingDbContext db, TimeProvider time, 
         var hash = Hash(token);
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
 
+        // The user row first, in share mode (T7a): a password change or reset, which revokes
+        // every token under the exclusive user lock, then runs wholly before or after this
+        // refresh, and the two never lock token rows in opposite orders (a deadlock).
+        var userId = await db.RefreshTokens.Where(t => t.TokenHash == hash).Select(t => (Guid?)t.UserId)
+            .SingleOrDefaultAsync(ct);
+        if (userId is null || !await db.LockUserSharedAsync(userId.Value, ct)) throw ApiException.InvalidRefreshToken();
+
         // The row lock makes two refreshes with the same token run one after the other,
-        // so the second sees the token as used.
+        // so the second sees the token as used. A locking read, so it also sees a revocation
+        // committed while this refresh waited for the user lock.
         var current = await db.RefreshTokens
             .FromSql($"SELECT * FROM refresh_tokens WHERE token_hash = {hash} FOR UPDATE")
             .SingleOrDefaultAsync(ct);
@@ -68,6 +76,15 @@ public sealed class RefreshTokenService(BookingDbContext db, TimeProvider time, 
         var familyId = await db.RefreshTokens.Where(t => t.TokenHash == hash).Select(t => (Guid?)t.FamilyId)
             .SingleOrDefaultAsync(ct);
         if (familyId is not null) await RevokeFamilyAsync(familyId.Value, Now(), ct);
+    }
+
+    /// <summary>Password reset or change (T7a): revokes every token of the user, from every login.</summary>
+    public Task RevokeAllForUserAsync(Guid userId, CancellationToken ct = default)
+    {
+        var now = Now();
+        return db.RefreshTokens
+            .Where(t => t.UserId == userId && t.RevokedAt == null)
+            .ExecuteUpdateAsync(s => s.SetProperty(t => t.RevokedAt, now), ct);
     }
 
     private Task RevokeFamilyAsync(Guid familyId, DateTime now, CancellationToken ct) =>

@@ -26,7 +26,7 @@ public class SchemaTests(TestDatabase database) : IClassFixture<TestDatabase>
     {
         string[] tables =
         [
-            "users", "user_invites", "refresh_tokens", "platform_admins", "businesses", "services", "staff", "staff_services",
+            "users", "user_invites", "password_resets", "refresh_tokens", "platform_admins", "businesses", "services", "staff", "staff_services",
             "availability_rules", "availability_exceptions", "time_off", "time_zone_changes", "outbox",
             "bookings", "notifications", "booking_history",
         ];
@@ -133,6 +133,31 @@ public class SchemaTests(TestDatabase database) : IClassFixture<TestDatabase>
         await _sql.ExecuteAsync(insert, new { id = Guid.NewGuid(), user, hash = "abc", creator, now = Sql.Now });
         Assert.Equal(ExpectedError.DuplicateKey,
             await _sql.FailsWithAsync(insert, new { id = Guid.NewGuid(), user, hash = "abc", creator, now = Sql.Now }));
+    }
+
+    [Fact]
+    public async Task Password_reset_token_hash_is_unique_and_null_until_the_worker_sets_it()
+    {
+        // T7a: specs/05-data-model.md password_resets.
+        var user = await _sql.InsertUserAsync();
+        const string insert =
+            "INSERT INTO password_resets (id, user_id, token_hash, expires_at, used_at, created_at) " +
+            "VALUES (@id, @user, @hash, NULL, NULL, @now)";
+        await _sql.ExecuteAsync(insert, new { id = Guid.NewGuid(), user, hash = (string?)null, now = Sql.Now });
+        await _sql.ExecuteAsync(insert, new { id = Guid.NewGuid(), user, hash = (string?)null, now = Sql.Now });
+
+        await _sql.ExecuteAsync(insert, new { id = Guid.NewGuid(), user, hash = "abc", now = Sql.Now });
+        Assert.Equal(ExpectedError.DuplicateKey,
+            await _sql.FailsWithAsync(insert, new { id = Guid.NewGuid(), user, hash = "abc", now = Sql.Now }));
+    }
+
+    [Fact]
+    public async Task Password_reset_must_belong_to_an_existing_user()
+    {
+        Assert.Equal(ExpectedError.ForeignKeyViolation, await _sql.FailsWithAsync(
+            "INSERT INTO password_resets (id, user_id, token_hash, expires_at, used_at, created_at) " +
+            "VALUES (@id, @user, NULL, NULL, NULL, @now)",
+            new { id = Guid.NewGuid(), user = Guid.NewGuid(), now = Sql.Now }));
     }
 
     // ------------------------------------------------------------ Business settings
@@ -384,6 +409,19 @@ public class SchemaTests(TestDatabase database) : IClassFixture<TestDatabase>
         await _sql.ExecuteAsync(insert, new { id = Guid.NewGuid(), eventId, recipient, now = Sql.Now });
         Assert.Equal(ExpectedError.DuplicateKey,
             await _sql.FailsWithAsync(insert, new { id = Guid.NewGuid(), eventId, recipient, now = Sql.Now }));
+    }
+
+    [Theory]
+    [InlineData("PasswordReset")]
+    [InlineData("PasswordChanged")]
+    public async Task Notification_kind_includes_the_account_emails(string kind)
+    {
+        // T7a: the kinds added for recovery and password change (specs/05-data-model.md notifications).
+        var recipient = await _sql.InsertUserAsync();
+        await _sql.ExecuteAsync(
+            "INSERT INTO notifications (id, event_id, recipient_user_id, kind, status, created_at) " +
+            "VALUES (@id, @eventId, @recipient, @kind, 'Pending', @now)",
+            new { id = Guid.NewGuid(), eventId = Guid.NewGuid(), recipient, kind, now = Sql.Now });
     }
 
     [Fact]

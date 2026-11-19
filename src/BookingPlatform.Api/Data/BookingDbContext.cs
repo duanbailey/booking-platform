@@ -17,6 +17,7 @@ public class BookingDbContext(DbContextOptions<BookingDbContext> options) : DbCo
 
     public DbSet<User> Users => Set<User>();
     public DbSet<UserInvite> UserInvites => Set<UserInvite>();
+    public DbSet<PasswordReset> PasswordResets => Set<PasswordReset>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<PlatformAdmin> PlatformAdmins => Set<PlatformAdmin>();
     public DbSet<Business> Businesses => Set<Business>();
@@ -34,12 +35,23 @@ public class BookingDbContext(DbContextOptions<BookingDbContext> options) : DbCo
 
     /// <summary>
     /// Loads the user with <c>SELECT ... FOR UPDATE</c>, inside the caller's transaction, so
-    /// accepting an invite, resending one and creating an owner for the same user run one
-    /// after another (T7). Call it before the user is tracked by this context: a tracked
-    /// instance would be returned with its old values, not the ones read under the lock.
+    /// operations on one user's account run one after another: login, accepting or resending an
+    /// invite, creating an owner (T7), password recovery and change (T7a). Call it before the
+    /// user is tracked by this context: a tracked instance would be returned with its old
+    /// values, not the ones read under the lock. Lock order: the user row first, then that
+    /// user's invites, recovery links or refresh tokens.
     /// </summary>
     public Task<User?> LockUserAsync(Guid userId, CancellationToken ct = default) =>
         Users.FromSql($"SELECT * FROM users WHERE id = {userId} FOR UPDATE").SingleOrDefaultAsync(ct);
+
+    /// <summary>
+    /// Takes the user row in share mode (<c>FOR SHARE</c>): a refresh holds it, so it never
+    /// interleaves with a password change or reset (which take <see cref="LockUserAsync"/>),
+    /// while one user's devices can still refresh at the same time (T7a). Returns false if the
+    /// user does not exist.
+    /// </summary>
+    public Task<bool> LockUserSharedAsync(Guid userId, CancellationToken ct = default) =>
+        Users.FromSql($"SELECT * FROM users WHERE id = {userId} FOR SHARE").Select(u => u.Id).AnyAsync(ct);
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -66,6 +78,15 @@ public class BookingDbContext(DbContextOptions<BookingDbContext> options) : DbCo
             e.HasIndex(x => x.TokenHash).IsUnique(); // several NULLs are allowed in a MySQL unique index
             e.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne<User>().WithMany().HasForeignKey(x => x.CreatedBy).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<PasswordReset>(e =>
+        {
+            e.ToTable("password_resets"); // T7a
+            e.Property(x => x.TokenHash).HasMaxLength(128); // as user_invites
+            e.HasIndex(x => x.TokenHash).IsUnique(); // several NULLs are allowed in a MySQL unique index
+            e.HasIndex(x => new { x.UserId, x.CreatedAt }); // newest row per user, the cooldown check
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<RefreshToken>(e =>

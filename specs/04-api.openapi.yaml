@@ -291,7 +291,8 @@ paths:
       description: |
         Sets the password, marks the link used and any pending invites used, revokes
         every refresh token for the user (other devices are logged out when their
-        access tokens expire), and logs the user in. Emits PasswordChanged.
+        access tokens expire), and logs the user in. Emits PasswordChanged, unless the
+        account had no password before (then the reset accepts the invite, as accept-invite does).
       security: []
       requestBody:
         required: true
@@ -340,7 +341,9 @@ paths:
               additionalProperties: false
               required: [currentPassword, newPassword]
               properties:
-                currentPassword: { type: string }
+                currentPassword:
+                  type: string
+                  description: An empty string is accepted and is simply wrong (422).
                 newPassword: { $ref: '#/components/schemas/Password' }
       responses:
         '200':

@@ -1,7 +1,7 @@
 # ADR 0010: Short-lived access tokens with rotating refresh tokens
 
 - **Status:** Accepted
-- **Date:** 2026-11-17
+- **Date:** 2026-11-17 (amended 2026-11-19: password reset and change, locking)
 - **Related specs:** [specs/07-nfr.md](../../specs/07-nfr.md), [specs/04-api.openapi.yaml](../../specs/04-api.openapi.yaml), [specs/05-data-model.md](../../specs/05-data-model.md)
 
 ## Context
@@ -18,11 +18,13 @@ The API authenticates with a JWT carrying the user's ID (specs/07-nfr.md). Roles
 
 - **Access token:** a JWT signed with HS256 (only the API issues and checks tokens, so a key pair adds nothing), valid for 15 minutes. Claims: `sub` (user ID), `iat`, `exp`, `iss`, `aud`; no role claims. The signing key comes from configuration (Secrets Manager in AWS).
 - **Refresh token:** a random 256-bit value, valid for 30 days. Only its SHA-256 hash is stored, in `refresh_tokens` (specs/05-data-model.md), like invite tokens.
-- **Login session (family):** register, login and accept-invite each start a family. Every refresh token issued from it shares the family ID.
+- **Login session (family):** register, login, accept-invite, reset-password and change-password each start a family. Every refresh token issued from it shares the family ID.
 - **Rotation:** `POST /v1/auth/refresh` marks the presented token used and returns a new access token and a new refresh token in the same family. Expiry is sliding: the new refresh token is valid for 30 days from the refresh, so a user who returns at least every 30 days stays logged in.
 - **Reuse detection:** presenting a token that was already used revokes every token in its family, and the call fails with 401 `InvalidRefreshToken`. The user logs in again.
 - **Logout:** `POST /v1/auth/logout` revokes the presented token's family. It needs no access token, so a client whose access token has expired can still log out, and it returns 204 even for an unknown token, so it reveals nothing.
 - An unknown, expired, used or revoked refresh token gets the same 401 `InvalidRefreshToken`, without saying which.
+- **Password reset and change** (T7a, specs/07-nfr.md) revoke every family of the user, then start a new one for the caller.
+- **Locking (added 2026-11-19):** operations on one user's sessions take the user's `users` row lock before touching that user's `refresh_tokens` rows, always in that order. Login, accept-invite, reset-password and change-password take it exclusively (`FOR UPDATE`) for the whole check and token issue; refresh takes it in share mode (`FOR SHARE`), then locks the presented token's row (`FOR UPDATE`) with a locking read.
 
 ## Consequences
 
@@ -30,4 +32,6 @@ The API authenticates with a JWT carrying the user's ID (specs/07-nfr.md). Roles
 - Two refreshes racing with the same token (e.g. two browser tabs) look like reuse: the second revokes the family and that user logs in again. This is accepted; a client should make refresh calls one at a time.
 - A stolen access token works for at most 15 minutes. Revoking a family does not invalidate access tokens already issued from it.
 - `refresh_tokens` grows with each refresh. Expired rows can be deleted by a cleanup job later; nothing reads them after expiry.
-- There is no "log out everywhere" endpoint. It can be added later by revoking every family for a user.
+- There is no "log out everywhere" endpoint, but resetting or changing the password does it, and such an endpoint could reuse the same revoke-all.
+- Because of the lock order, a password change or reset runs wholly before or after any login or refresh for that user: a login checks whichever password is committed, and a refresh in progress finishes before the revoke-all, so its new token is revoked too. Without the order, refresh (token row first) and revoke-all (user row, then token rows) deadlocked in testing. A user's devices still refresh in parallel, since share locks don't conflict, and two refreshes with the same token are still serialized by the token row lock.
+- Logins for one user run one at a time, including the deliberately slow password hash check. Different users don't wait for each other. Logout takes no user lock; it only revokes rows in one family.

@@ -63,6 +63,42 @@ public class AuthRateLimitTests : IClassFixture<TestDatabase>, IDisposable
     }
 
     [Fact]
+    public async Task Forgot_and_reset_password_share_the_login_limit()
+    {
+        // T7a: forgot-password sends email and reset-password checks a secret (specs/07-nfr.md).
+        var client = _api.ClientFrom("203.0.113.23");
+        await client.PostJsonAsync("/v1/auth/login", Credentials);
+        Assert.Equal(HttpStatusCode.Accepted,
+            (await client.PostJsonAsync("/v1/auth/forgot-password", new { email = ApiFixture.NewEmail() })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PostJsonAsync("/v1/auth/reset-password",
+            new { token = "unknown-token", password = "a long enough password" })).StatusCode);
+
+        var response = await client.PostJsonAsync("/v1/auth/forgot-password", new { email = ApiFixture.NewEmail() });
+
+        await Json.ErrorAsync(response, HttpStatusCode.TooManyRequests, "RequestRejected");
+    }
+
+    [Fact]
+    public async Task Change_password_shares_the_login_limit()
+    {
+        // T7a: slows guessing the current password with a stolen access token (specs/04-api.openapi.yaml).
+        var registered = await Json.ReadAsync(await _api.ClientFrom("203.0.113.24").PostJsonAsync("/v1/auth/register",
+            new { name = "Ann", email = ApiFixture.NewEmail(), password = "12345678", timeZone = "UTC" }), HttpStatusCode.Created);
+        var client = _api.ClientFrom("203.0.113.25");
+        client.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", registered.GetProperty("accessToken").GetString());
+        var guess = new { currentPassword = "a wrong guess", newPassword = "a long enough password" };
+        for (var i = 0; i < 3; i++)
+        {
+            Assert.Equal(HttpStatusCode.UnprocessableEntity, (await client.PostJsonAsync("/v1/auth/change-password", guess)).StatusCode);
+        }
+
+        var response = await client.PostJsonAsync("/v1/auth/change-password", guess);
+
+        await Json.ErrorAsync(response, HttpStatusCode.TooManyRequests, "RequestRejected");
+    }
+
+    [Fact]
     public async Task Refresh_and_logout_have_their_own_looser_limit()
     {
         // Many users behind one IP refresh every 15 minutes; that must not block their logins.

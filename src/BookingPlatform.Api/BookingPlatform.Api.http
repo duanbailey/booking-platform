@@ -100,3 +100,38 @@ Content-Type: application/json
   "token": "my-test-token",
   "password": "a new password for olive"
 }
+
+### Request a password recovery email (T7a). Always 202 with no body, whether or not the account exists;
+### within 5 minutes of the last request for the account nothing new is stored. Until the worker sends emails
+### (T26), find the row with SELECT * FROM password_resets ORDER BY created_at DESC LIMIT 1.
+POST {{BookingPlatform.Api_HostAddress}}/v1/auth/forgot-password
+Content-Type: application/json
+
+{
+  "email": "{{email}}"
+}
+
+### Set a new password from a recovery link (T7a). Make a token by hand, as for invites:
+###   UPDATE password_resets SET token_hash = SHA2('my-reset-token', 256), expires_at = UTC_TIMESTAMP() + INTERVAL 1 HOUR
+###   WHERE id = '<newest password_resets id>';
+### 200 with tokens (every other session is revoked), then 400 ResetLinkInvalid if sent again.
+### This sets the password to "{{password}}" again, so the requests above keep working.
+POST {{BookingPlatform.Api_HostAddress}}/v1/auth/reset-password
+Content-Type: application/json
+
+{
+  "token": "my-reset-token",
+  "password": "{{password}}"
+}
+
+### Change the password while logged in (T7a): 200 with new tokens, and every other session is revoked;
+### 422 CurrentPasswordIncorrect for a wrong current password. The new password here equals the current one
+### (allowed), so the requests above keep working. Log in again first if the access token has expired (15 minutes).
+POST {{BookingPlatform.Api_HostAddress}}/v1/auth/change-password
+Authorization: Bearer {{login.response.body.accessToken}}
+Content-Type: application/json
+
+{
+  "currentPassword": "{{password}}",
+  "newPassword": "{{password}}"
+}

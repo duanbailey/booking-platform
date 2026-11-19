@@ -68,15 +68,16 @@ public sealed class Sql(string connectionString)
     }
 
     /// <summary>
-    /// Opens a transaction holding <c>SELECT ... FOR UPDATE</c> on one user row. It is rolled
-    /// back on dispose unless committed; statements can run inside it meanwhile.
+    /// Opens a transaction holding <c>SELECT ... FOR UPDATE</c> (or <c>FOR SHARE</c>) on one user
+    /// row. It is rolled back on dispose unless committed; statements can run inside it meanwhile.
     /// </summary>
-    public async Task<HeldLock> LockUserRowAsync(Guid userId)
+    public async Task<HeldLock> LockUserRowAsync(Guid userId, bool shared = false)
     {
         var connection = new MySqlConnection(connectionString);
         await connection.OpenAsync();
         var held = new HeldLock(connection, await connection.BeginTransactionAsync());
-        await held.ExecuteAsync("SELECT id FROM users WHERE id = @userId FOR UPDATE", new { userId });
+        var mode = shared ? "FOR SHARE" : "FOR UPDATE";
+        await held.ExecuteAsync($"SELECT id FROM users WHERE id = @userId {mode}", new { userId });
         return held;
     }
 
@@ -136,6 +137,26 @@ public sealed class Sql(string connectionString)
                 usedAt, createdBy = createdBy ?? userId, createdAt = createdAt ?? Now,
             });
         return inviteId;
+    }
+
+    /// <summary>
+    /// Inserts a password_resets row (T7a), like <see cref="InsertInviteAsync"/>: with a
+    /// <paramref name="token"/> as the worker stores it, without one as the API leaves it.
+    /// </summary>
+    public async Task<Guid> InsertPasswordResetAsync(Guid userId, string? token = null, DateTime? expiresAt = null,
+        DateTime? createdAt = null, DateTime? usedAt = null, Guid? id = null)
+    {
+        var resetId = id ?? Guid.NewGuid();
+        await ExecuteAsync(
+            "INSERT INTO password_resets (id, user_id, token_hash, expires_at, used_at, created_at) " +
+            "VALUES (@resetId, @userId, @tokenHash, @expiresAt, @usedAt, @createdAt)",
+            new
+            {
+                resetId, userId, tokenHash = token is null ? null : TokenHash(token),
+                expiresAt = token is null ? (DateTime?)null : expiresAt ?? DateTime.UtcNow.AddHours(1),
+                usedAt, createdAt = createdAt ?? Now,
+            });
+        return resetId;
     }
 
     public static string TokenHash(string token) =>

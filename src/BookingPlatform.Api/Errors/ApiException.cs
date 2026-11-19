@@ -75,6 +75,14 @@ public sealed class ApiException(int status, ErrorCode code, string message, str
     public static ApiException InviteInvalid() =>
         new(StatusCodes.Status400BadRequest, ErrorCode.InviteInvalid, "This invite link is no longer valid.");
 
+    /// <summary>Unknown, expired, used or superseded recovery link, without saying which (specs/04-api.openapi.yaml).</summary>
+    public static ApiException ResetLinkInvalid() =>
+        new(StatusCodes.Status400BadRequest, ErrorCode.ResetLinkInvalid, "This password reset link is no longer valid.");
+
+    /// <summary>Story "User can change their password": the current password is wrong (or empty).</summary>
+    public static ApiException CurrentPasswordIncorrect() =>
+        new(StatusCodes.Status422UnprocessableEntity, ErrorCode.CurrentPasswordIncorrect, "The current password is incorrect.");
+
     /// <summary>Resend refused: the account already has a password.</summary>
     public static ApiException InviteNotPending() =>
         new(StatusCodes.Status422UnprocessableEntity, ErrorCode.InviteNotPending, "This account already has a password.");

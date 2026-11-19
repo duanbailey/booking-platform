@@ -90,7 +90,8 @@ Then they are told the link is no longer valid, and nothing changes.
 
 Scenario: Given an account was created with an invite and has no password yet
 When recovery is requested for it and the user sets a password through the link
-Then the password is saved as if the invite had been accepted, and the invite links stop working.
+Then the password is saved as if the invite had been accepted, and the invite links stop working
+And no password-changed email is sent, since the account had no password before (decided 2026-11-19).
 
 # Story: User can change their password
 Scenario: Given a user is logged in and chooses to change their password
@@ -100,7 +101,7 @@ And they are emailed that their password was changed.
 
 Scenario: Given a user is logged in and chooses to change their password
 When they enter a wrong current password
-Then they are told the current password is incorrect, and nothing changes.
+Then they are told the current password is incorrect, and nothing changes. An empty current password counts as wrong. The new password may equal the current one (decided 2026-11-19).
 
 # Story: Owner sets up their business
 Scenario (R2, R3, R4, R8): Given the owner is logged in
