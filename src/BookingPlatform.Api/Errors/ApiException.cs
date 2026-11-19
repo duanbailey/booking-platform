@@ -83,6 +83,18 @@ public sealed class ApiException(int status, ErrorCode code, string message, str
     public static ApiException CurrentPasswordIncorrect() =>
         new(StatusCodes.Status422UnprocessableEntity, ErrorCode.CurrentPasswordIncorrect, "The current password is incorrect.");
 
+    /// <summary>
+    /// 400 ValidationFailed for a rule checked in code rather than by a validation attribute,
+    /// in the same shape as model validation: details.fields maps the field (camelCase) to the problem.
+    /// </summary>
+    public static ApiException ValidationFailed(string field, string problem) =>
+        new(StatusCodes.Status400BadRequest, ErrorCode.ValidationFailed, "The request is not valid.",
+            details: new { fields = new SortedDictionary<string, string>(StringComparer.Ordinal) { [field] = problem } });
+
+    /// <summary>Story "Owner adds staff": the account is already (active) staff in this business.</summary>
+    public static ApiException AlreadyStaff() =>
+        new(StatusCodes.Status409Conflict, ErrorCode.AlreadyStaff, "This account is already staff in this business.");
+
     /// <summary>Resend refused: the account already has a password.</summary>
     public static ApiException InviteNotPending() =>
         new(StatusCodes.Status422UnprocessableEntity, ErrorCode.InviteNotPending, "This account already has a password.");

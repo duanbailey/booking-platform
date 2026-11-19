@@ -12,7 +12,7 @@ The API publishes domain events to SQS. The Node worker consumes them, sends ema
 | BookingLocalTimeChanged | API | A business time zone change leaves a booking that has not started at a different local time in the business's time zone (R2). One event per booking. | [BookingLocalTimeChanged.v1](events/BookingLocalTimeChanged.v1.schema.json) |
 | RebookedInsideWindow | API | A booking is made for a customer (by them, or by staff or an owner on their behalf) while the customer holds a booking with the same business inside the cancellation window (R4). Sent in addition to BookingCreated. | [RebookedInsideWindow.v1](events/RebookedInsideWindow.v1.schema.json) |
 | ReminderDue | EventBridge Scheduler | A reminder's time arrives (R9). | [ReminderDue.v1](events/ReminderDue.v1.schema.json) |
-| AccessGranted | API | An admin creates an owner and their business, or an owner adds a staff member. | [AccessGranted.v1](events/AccessGranted.v1.schema.json) |
+| AccessGranted | API | An admin creates an owner and their business, or an owner adds (or restores) a staff member. Not emitted when the owner adds themselves (decided 2026-11-19). | [AccessGranted.v1](events/AccessGranted.v1.schema.json) |
 | PasswordResetRequested | API | Password recovery is requested for an existing account, outside the 5-minute cooldown. | [PasswordResetRequested.v1](events/PasswordResetRequested.v1.schema.json) |
 | PasswordChanged | API | A user changes their password while logged in, or replaces an existing password through a recovery link. Not emitted when a recovery link sets the first password of an account that had none (decided 2026-11-19). | [PasswordChanged.v1](events/PasswordChanged.v1.schema.json) |
 

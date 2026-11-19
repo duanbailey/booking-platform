@@ -836,7 +836,9 @@ paths:
       tags: [Staff]
       operationId: listStaff
       summary: Staff in a business
-      description: Any signed-in user. Removed staff are not listed.
+      description: |
+        Any signed-in user. Removed staff are not listed. Ordered by name
+        (ignoring case and accents), then staffId.
       parameters:
         - $ref: '#/components/parameters/BusinessId'
         - $ref: '#/components/parameters/Limit'
@@ -862,9 +864,12 @@ paths:
       summary: Add a staff member
       description: |
         Owner only. Links the account with `email`, or creates one without a
-        password and sends an invite. The owner may add themselves. Adding a
-        previously removed staff member restores the same staff row, so their
-        earlier bookings stay linked. Emits `AccessGranted`.
+        password (in the business's time zone) and sends an invite; an existing
+        account without a password gets a new invite. The owner may add
+        themselves. Adding a previously removed staff member restores the same
+        staff row, so their earlier bookings stay linked, and keeps its service
+        links, weekly availability and date exceptions. Emits `AccessGranted`,
+        except when the owner adds themselves (decided 2026-11-19).
       parameters:
         - $ref: '#/components/parameters/BusinessId'
       requestBody:
@@ -935,7 +940,11 @@ paths:
       summary: Replace the services a staff member performs
       description: |
         Owner only. Every service must belong to the staff member's business
-        (otherwise 400). Existing bookings are unaffected.
+        (otherwise 400 `ValidationFailed` naming `serviceIds`, as for an unknown
+        or repeated ID). An empty list removes every service. Existing bookings
+        are unaffected. Allowed for a removed staff member too, so services can
+        be set before restoring them (decided 2026-11-19). The response lists the
+        services ordered by name (ignoring case and accents), then id.
       parameters:
         - $ref: '#/components/parameters/StaffId'
       requestBody:

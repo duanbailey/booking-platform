@@ -191,3 +191,30 @@ Content-Type: application/json
   "price": "50",
   "description": null
 }
+
+### Staff of a business (T10): any signed-in user; removed staff are not listed. By name, then staffId.
+GET {{BookingPlatform.Api_HostAddress}}/v1/businesses/{{businessId}}/staff
+Authorization: Bearer {{login.response.body.accessToken}}
+
+### Add a staff member (T10): owner only. A new email gets an account without a password and an invite;
+### an existing account is linked (the name is then ignored). Adding the owner's own email makes them staff
+### (no email sent). Re-adding a removed member restores them. 409 AlreadyStaff if already staff.
+# @name addStaff
+POST {{BookingPlatform.Api_HostAddress}}/v1/businesses/{{businessId}}/staff
+Authorization: Bearer {{login.response.body.accessToken}}
+Content-Type: application/json
+
+{
+  "name": "Sam Staff",
+  "email": "sam@example.test"
+}
+
+### Replace the services a staff member performs (T10): owner only. Every ID must be a service of the
+### staff member's business; [] removes them all. Uses the service created above.
+PUT {{BookingPlatform.Api_HostAddress}}/v1/staff/{{addStaff.response.body.staffId}}/services
+Authorization: Bearer {{login.response.body.accessToken}}
+Content-Type: application/json
+
+{
+  "serviceIds": ["{{createService.response.body.id}}"]
+}

@@ -1,7 +1,7 @@
 # ADR 0002: Enforce booking concurrency with a row lock on the staff member
 
 - **Status:** Accepted
-- **Date:** 2026-11-13
+- **Date:** 2026-11-13 (amended 2026-11-19: lock order with user rows)
 - **Related rules:** R1, R5, R6, R7 ([specs/03-business-rules.md](../../specs/03-business-rules.md))
 
 ## Context
@@ -48,4 +48,5 @@ This applies to:
 - Requests for the same staff member are handled one at a time. This is acceptable at the expected booking volume per staff member.
 - Transactions that hold the lock must stay short: no network calls or notifications inside them. Notifications are sent after the commit.
 - If a reschedule ever moves a booking between staff members, both staff rows must be locked in a fixed order (e.g. by ID) to avoid deadlocks.
+- **Lock order with user rows (added 2026-11-19).** Account operations lock the user's `users` row ([ADR 0010](0010-refresh-token-rotation.md): login, invites, password reset and change), and adding or restoring a staff member (T10) locks the user row and then the staff row. Any transaction that needs both takes the user row first, then the staff row, and never locks a user row while it already holds a staff row. Today only adding staff takes both; booking (T14), removal (T20) and any later operation that also locks a user row (e.g. a customer's) must keep this order, or two such transactions can deadlock.
 - R7 cannot be tested with in-memory fakes. Its test fires two simultaneous requests at a real MySQL instance (e.g. in a test container) and asserts exactly one success and one 409.

@@ -81,6 +81,14 @@ public sealed class Sql(string connectionString)
         return held;
     }
 
+    /// <summary>An open transaction holding no lock yet; statements run inside it take theirs.</summary>
+    public async Task<HeldLock> BeginTransactionAsync()
+    {
+        var connection = new MySqlConnection(connectionString);
+        await connection.OpenAsync();
+        return new HeldLock(connection, await connection.BeginTransactionAsync());
+    }
+
     /// <summary>Like <see cref="LockUserRowAsync"/>, for the row with this id in any table.</summary>
     public async Task<HeldLock> LockRowAsync(string table, Guid id)
     {
