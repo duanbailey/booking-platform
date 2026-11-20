@@ -71,14 +71,10 @@ public sealed class BookingsController(
         // reference the customer and the caller, and those foreign keys take shared locks on their rows; take
         // them first. The customer's is exclusive, so one customer's bookings run one at a time across staff
         // and the R4 check below sees every booking of theirs (decided 2026-11-20); the caller's is shared.
-        foreach (var userId in new[] { customerId, callerId }.Distinct().Order())
+        if (await db.LockUsersAsync([(customerId, true), (callerId, false)], ct) is { } missing)
         {
-            var exists = userId == customerId
-                ? await db.LockUserAsync(userId, ct) is not null
-                : await db.LockUserSharedAsync(userId, ct);
-            if (exists) continue;
             // The account was deleted since it was looked up (or since the token was issued).
-            throw userId == callerId ? ApiException.Unauthenticated() : ApiException.CustomerNotFound();
+            throw missing == callerId ? ApiException.Unauthenticated() : ApiException.CustomerNotFound();
         }
         if (await db.LockStaffAsync(staffId, ct) is null) throw ApiException.NotFound();
 

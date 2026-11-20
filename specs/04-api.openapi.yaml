@@ -1377,7 +1377,10 @@ paths:
         The customer (outside the cancellation window, inclusive of exactly N
         hours before), the booking's staff member, or the owner. The reason is
         `CustomerCancelled` when the caller is the booking's customer, otherwise
-        `BusinessCancelled`. Pending reminders are deleted (R9).
+        `BusinessCancelled`. A caller who is also the booking's staff member or
+        the owner is not bound by the window; inside it the reason is
+        `BusinessCancelled` (decided 2026-11-20). Staff and owners may cancel a
+        booking that has started. Pending reminders are deleted (R9).
       parameters:
         - $ref: '#/components/parameters/BookingId'
       responses:
@@ -1417,6 +1420,9 @@ paths:
           and after the move; otherwise 403.
         - Buffers are snapshotted again from the service (ADR 0004); pending
           reminders move to the new start (R9).
+        - Naming the current staff member and start changes nothing (200, no
+          history or event). A caller who is also the booking's staff member or
+          the owner is not bound by the window (decided 2026-11-20).
       parameters:
         - $ref: '#/components/parameters/BookingId'
       requestBody:

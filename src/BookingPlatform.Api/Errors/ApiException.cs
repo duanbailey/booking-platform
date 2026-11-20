@@ -121,6 +121,15 @@ public sealed class ApiException(int status, ErrorCode code, string message, str
         new(StatusCodes.Status422UnprocessableEntity, ErrorCode.MinimumNotice, "This slot is too soon to book.", "R3",
             new { minNoticeMinutes });
 
+    /// <summary>R4: a customer can't cancel or reschedule less than N hours before the start.</summary>
+    public static ApiException CancellationWindowPassed(int cancellationWindowHours) =>
+        new(StatusCodes.Status422UnprocessableEntity, ErrorCode.CancellationWindowPassed,
+            "This booking can no longer be changed online; contact the business, or book a new slot instead.", "R4", new { cancellationWindowHours });
+
+    /// <summary>The booking is already cancelled, which is final.</summary>
+    public static ApiException BookingCancelled() =>
+        new(StatusCodes.Status422UnprocessableEntity, ErrorCode.BookingCancelled, "This booking has been cancelled.");
+
     public static ApiException StaffNotAssignedToService() =>
         new(StatusCodes.Status422UnprocessableEntity, ErrorCode.StaffNotAssignedToService, "This staff member does not offer this service.");
 

@@ -165,8 +165,13 @@ public sealed class Sql(string connectionString)
             _committed = true;
         }
 
+        private bool _disposed;
+
+        /// <summary>Rolls back unless committed, and closes the connection; safe to call more than once.</summary>
         public async ValueTask DisposeAsync()
         {
+            if (_disposed) return;
+            _disposed = true;
             if (!_committed) await transaction.RollbackAsync();
             await connection.DisposeAsync();
         }

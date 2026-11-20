@@ -319,3 +319,17 @@ Authorization: Bearer {{login.response.body.accessToken}}
 ### A business's bookings (T16): the owner sees all (optional staffId); staff only their own (another staffId is 403); others 404.
 GET {{BookingPlatform.Api_HostAddress}}/v1/businesses/{{businessId}}/bookings
 Authorization: Bearer {{login.response.body.accessToken}}
+
+### Reschedule (T17, R5): same booking ID. Customers outside the window (R4) and with the same staff member only;
+### staff to their own slots; the owner to any staff (staffId). The current staff and start is a 200 no-op.
+POST {{BookingPlatform.Api_HostAddress}}/v1/bookings/{{createBooking.response.body.id}}/reschedule
+Authorization: Bearer {{login.response.body.accessToken}}
+Content-Type: application/json
+
+{
+  "startUtc": "2026-12-01T15:00:00Z"
+}
+
+### Cancel (T17, R4): customers outside the window (exactly N hours before is allowed); staff and owners any time.
+POST {{BookingPlatform.Api_HostAddress}}/v1/bookings/{{createBooking.response.body.id}}/cancel
+Authorization: Bearer {{login.response.body.accessToken}}

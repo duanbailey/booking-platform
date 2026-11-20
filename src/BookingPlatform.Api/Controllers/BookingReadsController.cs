@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
 using BookingPlatform.Api.Auth;
+using BookingPlatform.Api.Bookings;
 using BookingPlatform.Api.Authorization;
 using BookingPlatform.Api.Data;
 using BookingPlatform.Api.Errors;
@@ -170,12 +171,5 @@ public sealed class BookingReadsController(BookingDbContext db, AccessResolver a
         return PageBuilder.From(fetched, limit, b => new StartIdCursor(b.StartUtc, b.Id).Encode(StartIdList.Bookings), b => b);
     }
 
-    /// <summary>The Booking schema for each booking, keeping the query's order.</summary>
-    private IQueryable<BookingResponse> Responses(IQueryable<Booking> bookings) =>
-        from b in bookings
-        join s in db.Staff on b.StaffId equals s.Id
-        join biz in db.Businesses on s.BusinessId equals biz.Id
-        join u in db.Users on b.CustomerId equals u.Id
-        select new BookingResponse(b.Id, biz.Id, biz.TimeZone, b.ServiceId, b.StaffId, new BookingCustomer(u.Id, u.Name, u.Email),
-            b.StartUtc, b.EndUtc, b.Status, b.CancelledAt, b.CancellationReason);
+    private IQueryable<BookingResponse> Responses(IQueryable<Booking> bookings) => BookingQueries.Responses(db, bookings);
 }

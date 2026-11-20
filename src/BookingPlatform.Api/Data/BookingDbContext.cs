@@ -54,6 +54,22 @@ public class BookingDbContext(DbContextOptions<BookingDbContext> options) : DbCo
         Users.FromSql($"SELECT * FROM users WHERE id = {userId} FOR SHARE").Select(u => u.Id).AnyAsync(ct);
 
     /// <summary>
+    /// Locks user rows before any staff lock (ADR 0002 "Implicit locks on user rows count"): each user once,
+    /// FOR UPDATE if any entry asks for it, else FOR SHARE, in one fixed order (by id) so two such transactions
+    /// can't deadlock. Every operation that locks more than one user row goes through here. Returns the first
+    /// user that does not exist, or null.
+    /// </summary>
+    public async Task<Guid?> LockUsersAsync(IEnumerable<(Guid UserId, bool Exclusive)> users, CancellationToken ct = default)
+    {
+        foreach (var (userId, exclusive) in users.GroupBy(u => u.UserId).Select(g => (g.Key, g.Any(u => u.Exclusive))).OrderBy(u => u.Key))
+        {
+            var exists = exclusive ? await LockUserAsync(userId, ct) is not null : await LockUserSharedAsync(userId, ct);
+            if (!exists) return userId;
+        }
+        return null;
+    }
+
+    /// <summary>
     /// The ADR 0002 lock: <c>SELECT ... FROM staff ... FOR UPDATE</c> inside the caller's transaction, so
     /// changes to one staff member's schedule run one after another. Take any user row locks first
     /// (ADR 0002 amendment). Returns the row as read under the lock (not tracked), or null if it does not exist.

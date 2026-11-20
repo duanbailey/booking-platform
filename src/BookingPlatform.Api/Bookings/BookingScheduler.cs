@@ -45,10 +45,11 @@ public sealed class BookingScheduler(BookingDbContext db)
     /// <paramref name="blocked"/> (half-open, so touching is fine). Stored blocked intervals are compared,
     /// never the service's current buffers (ADR 0004).
     /// </summary>
-    public Task<bool> OverlapsActiveBookingAsync(Guid staffId, UtcInterval blocked, CancellationToken ct)
+    /// <param name="exceptBookingId">A booking being moved: its own current slot never conflicts (ADR 0003).</param>
+    public Task<bool> OverlapsActiveBookingAsync(Guid staffId, UtcInterval blocked, CancellationToken ct, Guid? exceptBookingId = null)
     {
         var from = blocked.Start - ServiceLimits.MaxBlockedSpan;
-        return db.Bookings.AnyAsync(b => b.StaffId == staffId && b.Status == BookingStatus.Confirmed
+        return db.Bookings.AnyAsync(b => b.StaffId == staffId && b.Status == BookingStatus.Confirmed && b.Id != exceptBookingId
             && b.BlockedStartUtc > from && b.BlockedStartUtc < blocked.End && b.BlockedEndUtc > blocked.Start, ct);
     }
 
