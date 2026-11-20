@@ -144,6 +144,7 @@ If a new one comes up, add it here with the task it blocks, and record the answe
 
 - [ ] **T25. Reminders.** Scheduling, moving and deleting EventBridge Scheduler reminders named by booking ID, skipping past times, and handling `ReminderDue` (dropped if stale).
   Acceptance: R9; story "Reminders go out 24 hours and 1 hour before a booking".
+  Also: update `docs/architecture.md` with how `ReminderDue` reaches the worker (the dotted arrow) and drop the dashed style from the parts T21-T25 built.
 
 - [ ] **T26. Invite and account emails.** `AccessGranted` handling: token generation, hash and 7-day expiry on `user_invites`, a new token on re-send, never logging the raw token, and the AccessGranted email when there is no invite. `PasswordResetRequested` handling the same way on `password_resets` with a 1-hour expiry, and the `PasswordChanged` email. Uses a database user limited as in `specs/07-nfr.md`.
   Acceptance: worker handling table; invite stories (end to end with T7); recovery story (end to end with T7a).
@@ -156,6 +157,7 @@ If a new one comes up, add it here with the task it blocks, and record the answe
   Done when: one command deploys a working environment, and a booking made through the API produces a confirmation email.
   Configure trusted forwarded headers (the load balancer's network) so rate limiting sees real client IPs, and make sure the API image has time zone data (tzdata) for IANA names.
   Before the first deployment: squash the EF Core migrations into one `InitialSchema` (ADR 0006). Do it once, after every task branch is merged. Copy across any hand-written `migrationBuilder.Sql` (e.g. the worker's database user, and `FixEmailCollation`, since the EF provider drops column collations), and drop and recreate any database that applied the old migrations. The schema tests must pass afterwards. Once any environment is deployed, migrations are never squashed again.
+  Also: update `docs/architecture.md` to the deployed infrastructure (network, worker database user, IAM as needed) and drop the remaining dashed "planned" styling.
   Admin script in production: run `admin grant|revoke|list` as a one-off ECS task from the API image with the command overridden (e.g. `dotnet BookingPlatform.Api.dll admin list`) and the database secret from Secrets Manager; document it in the runbook. The first admin needs an existing account, so the operator signs up through the API before the bootstrap grant. Grant and revoke audit lines go to CloudWatch with the task's logs (stderr).
 
 - [ ] **T28. Slot query performance.** A repeatable test that a 30-day slot query meets p95 under 300 ms (`specs/07-nfr.md`) on realistic data; fix any shortfall.
