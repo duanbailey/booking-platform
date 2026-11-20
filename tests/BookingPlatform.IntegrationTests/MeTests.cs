@@ -91,6 +91,18 @@ public class MeTests(ApiFixture fixture) : IClassFixture<ApiFixture>
         await Json.ErrorAsync(response, HttpStatusCode.Unauthorized, "Unauthenticated");
     }
 
+    [Fact] // R2: an alias is stored under its canonical name (decided 2026-11-20)
+    public async Task Patch_stores_a_time_zone_alias_as_its_canonical_name()
+    {
+        var (_, client) = await UserAsync();
+
+        var moved = await Json.ReadAsync(await client.SendAsync(Patch("""{"timeZone":"US/Eastern"}""")), HttpStatusCode.OK);
+
+        Assert.Equal("America/New_York", moved.GetProperty("timeZone").GetString());
+        var me = await Json.ReadAsync(await client.GetAsync("/v1/me"), HttpStatusCode.OK);
+        Assert.Equal("America/New_York", me.GetProperty("timeZone").GetString());
+    }
+
     [Fact]
     public async Task Patch_changes_only_the_fields_sent()
     {

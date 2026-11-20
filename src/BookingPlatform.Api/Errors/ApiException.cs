@@ -91,6 +91,11 @@ public sealed class ApiException(int status, ErrorCode code, string message, str
         new(StatusCodes.Status400BadRequest, ErrorCode.ValidationFailed, "The request is not valid.",
             details: new { fields = new SortedDictionary<string, string>(StringComparer.Ordinal) { [field] = problem } });
 
+    /// <summary>ADR 0005: a slot query covers at most <paramref name="maxDays"/> dates.</summary>
+    public static ApiException RangeTooLong(int maxDays) =>
+        new(StatusCodes.Status400BadRequest, ErrorCode.RangeTooLong, $"A slot query can cover at most {maxDays} days.",
+            details: new { maxDays });
+
     /// <summary>Story "Owner adds staff": the account is already (active) staff in this business.</summary>
     public static ApiException AlreadyStaff() =>
         new(StatusCodes.Status409Conflict, ErrorCode.AlreadyStaff, "This account is already staff in this business.");

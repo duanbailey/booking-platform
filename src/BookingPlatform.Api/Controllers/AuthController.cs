@@ -63,7 +63,7 @@ public sealed class AuthController(
             Id = Guid.NewGuid(),
             Email = request.Email.Trim(),
             Name = request.Name.Trim(),
-            TimeZone = request.TimeZone,
+            TimeZone = IanaTimeZoneAttribute.Canonicalize(request.TimeZone),
             CreatedAt = time.GetUtcNow().UtcDateTime,
         };
         user.PasswordHash = passwords.Hash(user, request.Password);

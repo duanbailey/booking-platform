@@ -56,7 +56,7 @@ public sealed class MeController(BookingDbContext db) : ControllerBase
         var user = await db.Users.SingleOrDefaultAsync(u => u.Id == userId, ct) ?? throw ApiException.Unauthenticated();
 
         if (request.HasName) user.Name = request.Name!.Trim();
-        if (request.HasTimeZone) user.TimeZone = request.TimeZone!;
+        if (request.HasTimeZone) user.TimeZone = IanaTimeZoneAttribute.Canonicalize(request.TimeZone!);
         await db.SaveChangesAsync(ct);
 
         return await LoadAsync(userId, ct);

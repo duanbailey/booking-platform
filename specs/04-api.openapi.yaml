@@ -781,6 +781,13 @@ paths:
         advance-booking window is not an error; no slots are returned for those
         times. Spring-forward gaps are skipped and only the first hour of a
         fall-back overlap is offered (R2).
+        A slot starting exactly when the minimum notice period ends is offered
+        (R3); the advance-booking window is now + maxAdvanceDays × 24 hours,
+        inclusive (R8). Starts step on the local clock from each availability
+        block's start (decided 2026-11-20).
+        A `staffId` that is not a staff member of the service's business is
+        404; a removed staff member, or one not assigned to the service, gets
+        no slots.
       parameters:
         - $ref: '#/components/parameters/ServiceId'
         - name: from
@@ -803,7 +810,7 @@ paths:
           schema: { type: boolean, default: false }
       responses:
         '200':
-          description: Open slots, ordered by start time.
+          description: Open slots, ordered by start time, then staffId.
           content:
             application/json:
               schema:
@@ -1589,9 +1596,11 @@ components:
       pattern: 'Z$'
     IanaTimeZone:
       description: |
-        IANA time zone name in its canonical spelling, e.g. Europe/London (R2).
-        Unknown names, other spellings (europe/london) and Windows names (GMT
-        Standard Time) give 400.
+        IANA time zone name spelled as in the tz database, e.g. Europe/London
+        (R2). An alias is accepted and stored, and returned, under its canonical
+        name: UTC becomes Etc/UTC, Asia/Calcutta becomes Asia/Kolkata (decided
+        2026-11-20). Unknown names, other spellings (europe/london) and Windows
+        names (GMT Standard Time) give 400.
       type: string
       minLength: 1
       examples: [Europe/London]

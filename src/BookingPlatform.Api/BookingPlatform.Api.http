@@ -283,3 +283,9 @@ Content-Type: application/json
 ### Remove time off (T12): 204, or 404 if it doesn't exist (any more)
 DELETE {{BookingPlatform.Api_HostAddress}}/v1/time-off/{{timeOff.response.body.id}}
 Authorization: Bearer {{login.response.body.accessToken}}
+
+### Open slots (T13): any signed-in user. from/to are inclusive local dates in the business's time zone, at most
+### 30 dates (else 400 RangeTooLong). Optional staffId; ignoreMinimumNotice=true is for the owner, or staff with
+### their own staffId (else 403). Past and beyond-window dates simply give no slots.
+GET {{BookingPlatform.Api_HostAddress}}/v1/services/{{createService.response.body.id}}/slots?from=2026-12-01&to=2026-12-07
+Authorization: Bearer {{login.response.body.accessToken}}

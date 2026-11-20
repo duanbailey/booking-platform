@@ -50,6 +50,21 @@ public class AdminOwnersTests(ApiFixture fixture) : IClassFixture<ApiFixture>
         return events;
     }
 
+    [Fact] // R2: an alias is stored under its canonical name, for the business and the new account (decided 2026-11-20)
+    public async Task Business_time_zone_alias_is_stored_as_its_canonical_name()
+    {
+        var (admin, _) = await AdminAsync();
+        var email = ApiFixture.NewEmail();
+
+        var body = await Json.ReadAsync(await admin.PostJsonAsync(Path, Request(email, timeZone: "US/Eastern")), HttpStatusCode.Created);
+
+        Assert.Equal("America/New_York", body.GetProperty("timeZone").GetString());
+        var businessId = Guid.Parse(body.GetProperty("id").GetString()!);
+        Assert.Equal("America/New_York", await TextAsync("SELECT time_zone FROM businesses WHERE id = @businessId", new { businessId }));
+        var userId = (await UserIdAsync(email))!.Value;
+        Assert.Equal("America/New_York", await TextAsync("SELECT time_zone FROM users WHERE id = @userId", new { userId }));
+    }
+
     [Fact]
     public async Task New_email_creates_an_account_without_password_a_business_with_defaults_and_an_invite()
     {

@@ -39,6 +39,18 @@ public class RegisterTests(ApiFixture fixture) : IClassFixture<ApiFixture>
         Assert.Empty(me.GetProperty("staff").EnumerateArray());
     }
 
+    [Theory] // R2: an alias is stored under its canonical name (decided 2026-11-20)
+    [InlineData("UTC", "Etc/UTC")]
+    [InlineData("Asia/Calcutta", "Asia/Kolkata")]
+    public async Task Time_zone_alias_is_stored_as_its_canonical_name(string alias, string canonical)
+    {
+        var email = ApiFixture.NewEmail();
+
+        await Json.ReadAsync(await Register(new { name = "Ann", email, password = ApiFixture.Password, timeZone = alias }), HttpStatusCode.Created);
+
+        Assert.Equal(canonical, Convert.ToString(await fixture.Sql.ScalarAsync("SELECT time_zone FROM users WHERE email = @email", new { email })));
+    }
+
     [Fact]
     public async Task Password_is_stored_only_as_a_hash()
     {

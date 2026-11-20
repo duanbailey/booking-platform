@@ -57,7 +57,7 @@ public sealed class AdminController(
                 Id = Guid.NewGuid(),
                 Email = email,
                 Name = request.OwnerName.Trim(),
-                TimeZone = request.BusinessTimeZone,
+                TimeZone = IanaTimeZoneAttribute.Canonicalize(request.BusinessTimeZone),
                 CreatedAt = now,
             };
             db.Users.Add(owner);
@@ -72,7 +72,7 @@ public sealed class AdminController(
             Id = Guid.NewGuid(),
             Name = request.BusinessName.Trim(),
             OwnerUserId = owner.Id,
-            TimeZone = request.BusinessTimeZone,
+            TimeZone = IanaTimeZoneAttribute.Canonicalize(request.BusinessTimeZone),
             CreatedAt = now,
         };
         db.Businesses.Add(business);
