@@ -1201,8 +1201,11 @@ paths:
       operationId: createTimeOff
       summary: Block time off (R6)
       description: |
-        Overlapping Confirmed bookings use the confirm pattern; on confirmation
-        they are cancelled with reason `TimeOff`. Buffers are part of this
+        Overlapping Confirmed bookings that have not ended use the confirm
+        pattern; on confirmation they are cancelled with reason `TimeOff`
+        (bookings already over are never affected, decided 2026-11-20; a booking
+        whose appointment has ended counts as over even while its after-buffer
+        is still running). Buffers are part of this
         check: a booking overlaps if its blocked interval (start minus its
         before-buffer to end plus its after-buffer, R1) overlaps the time off.
         Staff block their own time off, the owner anyone's (also a removed

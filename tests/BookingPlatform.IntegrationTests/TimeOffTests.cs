@@ -113,7 +113,7 @@ public class TimeOffTests(ApiFixture fixture) : IClassFixture<ApiFixture>
     }
 
     [Fact]
-    public async Task Confirm_is_accepted_and_ignored_until_the_R6_check_exists()
+    public async Task R6_a_confirm_with_nothing_to_confirm_goes_ahead()
     {
         var cast = await CastAsync();
 

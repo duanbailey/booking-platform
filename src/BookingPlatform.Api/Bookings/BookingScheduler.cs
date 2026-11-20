@@ -88,6 +88,20 @@ public sealed class BookingScheduler(BookingDbContext db)
         return inside;
     }
 
+    /// <summary>
+    /// R6: the staff member's Confirmed bookings whose blocked interval (buffers included, R1) overlaps
+    /// <paramref name="interval"/> and that have not ended, so a change to the past never cancels bookings that
+    /// already happened (decided 2026-11-20). Read under the staff lock.
+    /// </summary>
+    public Task<List<Booking>> AffectedAsync(Guid staffId, UtcInterval interval, DateTime nowUtc, CancellationToken ct)
+    {
+        var from = interval.Start - ServiceLimits.MaxBlockedSpan;
+        return db.Bookings.AsNoTracking()
+            .Where(b => b.StaffId == staffId && b.Status == BookingStatus.Confirmed && b.EndUtc > nowUtc
+                && b.BlockedStartUtc > from && b.BlockedStartUtc < interval.End && b.BlockedEndUtc > interval.Start)
+            .ToListAsync(ct);
+    }
+
     /// <summary>ADR 0004: [start - before-buffer, end + after-buffer), from the service's buffers now.</summary>
     public static UtcInterval BlockedInterval(DateTime startUtc, Service service) => new(
         startUtc.AddMinutes(-service.BufferBeforeMinutes),

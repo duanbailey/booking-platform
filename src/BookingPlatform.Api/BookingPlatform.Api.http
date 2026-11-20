@@ -269,7 +269,9 @@ Authorization: Bearer {{login.response.body.accessToken}}
 GET {{BookingPlatform.Api_HostAddress}}/v1/staff/{{staffId}}/time-off?from=2026-12-01T00:00:00Z
 Authorization: Bearer {{login.response.body.accessToken}}
 
-### Block time off (T12): endUtc is exclusive and after startUtc
+### Block time off (T12, T18): endUtc is exclusive and after startUtc. If it overlaps bookings that have not ended
+### (buffers included), the answer is 409 ConfirmationRequired listing them; send the same request again with
+### "confirm": { "affectedBookingIds": [...] } to save it and cancel them (R6).
 # @name timeOff
 POST {{BookingPlatform.Api_HostAddress}}/v1/staff/{{staffId}}/time-off
 Authorization: Bearer {{login.response.body.accessToken}}

@@ -1,6 +1,8 @@
 using System.ComponentModel.DataAnnotations;
 using BookingPlatform.Api.Auth;
 using BookingPlatform.Api.Authorization;
+using BookingPlatform.Api.Slots;
+using BookingPlatform.Api.Bookings;
 using BookingPlatform.Api.Data;
 using BookingPlatform.Api.Errors;
 using BookingPlatform.Api.Paging;
@@ -47,14 +49,15 @@ public sealed class UtcRangeQuery
 }
 
 /// <summary>
-/// Time off (stories "Staff or owner blocks time off"), without the R6 check for overlapping
-/// bookings (T18; until then `confirm` is accepted and ignored). Access is that of
+/// Time off (story "Staff or owner blocks time off, which handles existing bookings"): creating it applies R6
+/// through the confirm pattern (T18). Access is that of
 /// <see cref="StaffAccessGuard"/>. Time off may overlap other time off and lie in the past
 /// (decided 2026-11-19).
 /// </summary>
 [ApiController]
 [Route("v1")]
-public sealed class TimeOffController(BookingDbContext db, StaffAccessGuard guard, TimeProvider time) : ControllerBase
+public sealed class TimeOffController(
+    BookingDbContext db, StaffAccessGuard guard, BookingScheduler scheduler, BookingCanceller canceller, TimeProvider time) : ControllerBase
 {
     /// <summary>
     /// A page of time off ordered by start, then id. The filter is by overlap (decided 2026-11-19):
@@ -81,7 +84,12 @@ public sealed class TimeOffController(BookingDbContext db, StaffAccessGuard guar
         return PageBuilder.From(fetched, page.Limit, t => new StartIdCursor(t.StartUtc, t.Id).Encode(StartIdList.TimeOff), TimeOffResponse.From);
     }
 
-    /// <summary>Blocks time off for the staff member, under the staff lock (ADR 0002), as the R6 check will need (T18).</summary>
+    /// <summary>
+    /// Blocks time off for the staff member. R6: the staff member's bookings that have not ended and whose blocked
+    /// interval overlaps it go through the confirm pattern; on confirmation the time off is saved and they are
+    /// cancelled with reason TimeOff, all in one transaction (decided 2026-11-20). Locks: the caller's user row
+    /// (cancelled_by references it), then the staff row (ADR 0002); the affected set is worked out under them.
+    /// </summary>
     [HttpPost("staff/{staffId:guid}/time-off")]
     public async Task<IActionResult> Create(Guid staffId, CreateTimeOffRequest request, CancellationToken ct)
     {
@@ -91,13 +99,24 @@ public sealed class TimeOffController(BookingDbContext db, StaffAccessGuard guar
 
         await guard.RequireAsync(callerId, staffId, manage: true, ct);
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        if (await db.LockUsersAsync([(callerId, false)], ct) is not null) throw ApiException.Unauthenticated();
         await guard.LockAndRequireAsync(callerId, staffId, ct);
 
-        var timeOff = new TimeOff
-        {
-            Id = Guid.NewGuid(), StaffId = staffId, StartUtc = start, EndUtc = end, CreatedAt = time.GetUtcNow().UtcDateTime,
-        };
+        var now = time.GetUtcNow().UtcDateTime;
+        var affected = await scheduler.AffectedAsync(staffId, new UtcInterval(start, end), now, ct);
+        ConfirmGate.Require(affected.Select(b => new AffectedBooking(b.Id, b.StaffId, b.StartUtc, b.EndUtc)).ToList(),
+            request.Confirm?.AffectedBookingIds, "R6",
+            $"This time off overlaps {affected.Count} booking(s); confirming cancels them and notifies everyone affected.");
+
+        var timeOff = new TimeOff { Id = Guid.NewGuid(), StaffId = staffId, StartUtc = start, EndUtc = end, CreatedAt = now };
         db.TimeOff.Add(timeOff);
+        if (affected.Count > 0)
+        {
+            var business = await (from s in db.Staff join b in db.Businesses on s.BusinessId equals b.Id where s.Id == staffId select b)
+                .AsNoTracking().SingleAsync(ct);
+            var role = business.OwnerUserId == callerId ? ActorRole.Owner : ActorRole.Staff;
+            await canceller.CancelAsync(affected, business, callerId, role, CancellationReason.TimeOff, now, ct);
+        }
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
 

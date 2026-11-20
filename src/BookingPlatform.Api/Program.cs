@@ -97,6 +97,7 @@ builder.Services.AddScoped<PasswordRecoveryService>();
 builder.Services.AddScoped<StaffAccessGuard>();
 builder.Services.AddSingleton<BusinessZones>();
 builder.Services.AddScoped<BookingScheduler>();
+builder.Services.AddScoped<BookingCanceller>();
 builder.Services.AddSingleton<IPasswordHasher<User>, PasswordHasher<User>>();
 builder.Services.AddSingleton<Passwords>();
 builder.Services.AddScoped<AccessResolver>();

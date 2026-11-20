@@ -41,7 +41,8 @@ public sealed record RescheduleRequest([Required, UtcTimestamp] string StartUtc,
 [ApiController]
 [Route("v1")]
 public sealed class BookingChangesController(
-    BookingDbContext db, AccessResolver access, BookingScheduler scheduler, BusinessZones zones, OutboxWriter outbox, TimeProvider time)
+    BookingDbContext db, AccessResolver access, BookingScheduler scheduler, BookingCanceller canceller, BusinessZones zones,
+    OutboxWriter outbox, TimeProvider time)
     : ControllerBase
 {
     /// <summary>The booking and what it belongs to, as read under the locks, with the caller's roles.</summary>
@@ -77,15 +78,7 @@ public sealed class BookingChangesController(
         var asCustomer = current.IsCustomer && !(current.Privileged && insideWindow);
         var reason = asCustomer ? CancellationReason.CustomerCancelled : CancellationReason.BusinessCancelled;
         var role = asCustomer ? ActorRole.Customer : current.StaffRole;
-        var version = booking.Version + 1;
-        await UpdateAsync(booking, ct, setters => setters
-            .SetProperty(b => b.Status, BookingStatus.Cancelled)
-            .SetProperty(b => b.CancelledAt, now)
-            .SetProperty(b => b.CancelledBy, callerId)
-            .SetProperty(b => b.CancellationReason, reason)
-            .SetProperty(b => b.Version, version));
-        outbox.Add(new BookingCancelled(booking.Id, version, current.Business.Id, current.Business.TimeZone, booking.ServiceId,
-            booking.CustomerId, new EventSlot(booking.StaffId, booking.StartUtc, booking.EndUtc), new EventActor(callerId, role), reason));
+        await canceller.CancelAsync([booking], current.Business, callerId, role, reason, now, ct);
         await db.SaveChangesAsync(ct);
         var response = await BookingQueries.Responses(db, db.Bookings.AsNoTracking().Where(b => b.Id == bookingId)).SingleAsync(ct);
         await transaction.CommitAsync(ct);
