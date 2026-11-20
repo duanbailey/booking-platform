@@ -136,3 +136,28 @@ public sealed partial class LocalDateAttribute() : ValidationAttribute("Must be 
     [System.Text.RegularExpressions.GeneratedRegex(@"\A[0-9]{4}-[0-9]{2}-[0-9]{2}\z")]
     private static partial System.Text.RegularExpressions.Regex Pattern();
 }
+
+/// <summary>
+/// A UTC timestamp: RFC 3339 with an uppercase Z, seconds required, up to 7 fractional digits
+/// (UtcTimestamp in specs/04-api.openapi.yaml; decided 2026-11-19). Offsets, a missing zone or other
+/// formats are refused, so timestamps are bound as strings and parsed here. Parsed values are cut to
+/// the microsecond, the precision of the datetime(6) columns. Null passes; an empty string does not.
+/// </summary>
+public sealed partial class UtcTimestampAttribute() : ValidationAttribute("Must be a UTC timestamp like 2026-12-24T09:00:00Z.")
+{
+    public override bool IsValid(object? value) => value is null || (value is string text && TryParse(text, out _));
+
+    public static bool TryParse(string? text, out DateTime utc)
+    {
+        utc = default;
+        if (text is null || !Pattern().IsMatch(text)) return false;
+        if (!DateTime.TryParse(text, System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out var parsed))
+            return false;
+        utc = DateTime.SpecifyKind(new DateTime(parsed.Ticks - parsed.Ticks % 10), DateTimeKind.Utc); // R2: UTC, to the microsecond
+        return true;
+    }
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,7})?Z\z")]
+    private static partial System.Text.RegularExpressions.Regex Pattern();
+}

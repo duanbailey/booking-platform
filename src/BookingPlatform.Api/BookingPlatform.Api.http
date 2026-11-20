@@ -263,3 +263,23 @@ Authorization: Bearer {{login.response.body.accessToken}}
 ### Remove a date exception (T11): 204, or 404 if that date has none
 DELETE {{BookingPlatform.Api_HostAddress}}/v1/staff/{{staffId}}/date-exceptions/2026-12-24
 Authorization: Bearer {{login.response.body.accessToken}}
+
+### Time off (T12): viewed like availability; staff block their own, the owner anyone's. Timestamps are UTC
+### with a Z (no offsets). Entries may overlap and may be in the past. Ordered by start; from/to filter the start.
+GET {{BookingPlatform.Api_HostAddress}}/v1/staff/{{staffId}}/time-off?from=2026-12-01T00:00:00Z
+Authorization: Bearer {{login.response.body.accessToken}}
+
+### Block time off (T12): endUtc is exclusive and after startUtc
+# @name timeOff
+POST {{BookingPlatform.Api_HostAddress}}/v1/staff/{{staffId}}/time-off
+Authorization: Bearer {{login.response.body.accessToken}}
+Content-Type: application/json
+
+{
+  "startUtc": "2026-12-24T09:00:00Z",
+  "endUtc": "2026-12-24T17:00:00Z"
+}
+
+### Remove time off (T12): 204, or 404 if it doesn't exist (any more)
+DELETE {{BookingPlatform.Api_HostAddress}}/v1/time-off/{{timeOff.response.body.id}}
+Authorization: Bearer {{login.response.body.accessToken}}

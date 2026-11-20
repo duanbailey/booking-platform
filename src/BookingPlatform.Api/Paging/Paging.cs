@@ -40,6 +40,10 @@ public sealed class PageQuery
     /// <exception cref="ApiException">ValidationFailed naming cursor if it is not such a cursor.</exception>
     public DateCursor? AfterDate() => Cursor is null ? null : DateCursor.TryDecode(Cursor) ?? throw InvalidCursor();
 
+    /// <summary>For lists ordered by (start, id): the decoded cursor, or null for the first page.</summary>
+    /// <exception cref="ApiException">ValidationFailed naming cursor if it is not such a cursor.</exception>
+    public StartIdCursor? AfterStartId() => Cursor is null ? null : StartIdCursor.TryDecode(Cursor) ?? throw InvalidCursor();
+
     private static ApiException InvalidCursor() => ApiException.ValidationFailed("cursor", "Is not a cursor from a previous page.");
 }
 
@@ -93,6 +97,20 @@ public sealed record NameIdCursor(string Name, Guid Id)
         CursorCodec.TryDecode<Wire>(cursor) is { N: { } name, I: { } id } ? new NameIdCursor(name, id) : null;
 
     private sealed record Wire(string? N, Guid? I);
+}
+
+/// <summary>A cursor for lists ordered by a UTC start, then id: the last item's start and id.</summary>
+public sealed record StartIdCursor(DateTime Start, Guid Id)
+{
+    public string Encode() => CursorCodec.Encode(new Wire(Start.Ticks, Id));
+
+    public static StartIdCursor? TryDecode(string cursor) =>
+        CursorCodec.TryDecode<Wire>(cursor) is { S: { } ticks and >= 0 and <= 3155378975999999999, I: { } id }
+            ? new StartIdCursor(new DateTime(ticks, DateTimeKind.Utc), id)
+            : null;
+
+    /// <summary>Ticks, so the start round-trips exactly.</summary>
+    private sealed record Wire(long? S, Guid? I);
 }
 
 /// <summary>Pages a query that is already in list order and filtered to items after the cursor.</summary>

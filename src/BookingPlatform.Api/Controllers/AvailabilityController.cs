@@ -143,12 +143,12 @@ internal static class TimeRanges
 /// </summary>
 [ApiController]
 [Route("v1/staff/{staffId:guid}")]
-public sealed class AvailabilityController(BookingDbContext db, AccessResolver access) : ControllerBase
+public sealed class AvailabilityController(BookingDbContext db, StaffAccessGuard guard) : ControllerBase
 {
     [HttpGet("weekly-availability")]
     public async Task<WeeklyAvailabilityResponse> GetWeekly(Guid staffId, CancellationToken ct)
     {
-        await RequireAsync(staffId, manage: false, ct);
+        await guard.RequireAsync(User.GetUserId(), staffId, manage: false, ct);
         return await WeeklyAsync(staffId, ct);
     }
 
@@ -156,10 +156,9 @@ public sealed class AvailabilityController(BookingDbContext db, AccessResolver a
     [HttpPut("weekly-availability")]
     public async Task<WeeklyAvailabilityResponse> SetWeekly(Guid staffId, WeeklyAvailabilityRequest request, CancellationToken ct)
     {
-        await RequireAsync(staffId, manage: true, ct); // before the lock: see LockStaffAsync
+        await guard.RequireAsync(User.GetUserId(), staffId, manage: true, ct); // before the lock: see StaffAccessGuard
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        await LockStaffAsync(staffId, ct);
-        await RequireAsync(staffId, manage: true, ct);
+        await guard.LockAndRequireAsync(User.GetUserId(), staffId, ct);
 
         await db.AvailabilityRules.Where(r => r.StaffId == staffId).ExecuteDeleteAsync(ct);
         db.AvailabilityRules.AddRange(request.Blocks!.Select(b =>
@@ -183,7 +182,7 @@ public sealed class AvailabilityController(BookingDbContext db, AccessResolver a
     {
         var (from, to) = (range.FromDate, range.ToDate);
         if (from > to) throw ApiException.ValidationFailed("from", "Must not be after to.");
-        await RequireAsync(staffId, manage: false, ct);
+        await guard.RequireAsync(User.GetUserId(), staffId, manage: false, ct);
         var after = page.AfterDate();
 
         var rows = db.AvailabilityExceptions.AsNoTracking().Where(e => e.StaffId == staffId);
@@ -204,10 +203,9 @@ public sealed class AvailabilityController(BookingDbContext db, AccessResolver a
     public async Task<DateExceptionResponse> SetException(Guid staffId, string date, DateExceptionRequest request, CancellationToken ct)
     {
         var day = ParseDate(date);
-        await RequireAsync(staffId, manage: true, ct); // before the lock: see LockStaffAsync
+        await guard.RequireAsync(User.GetUserId(), staffId, manage: true, ct); // before the lock: see StaffAccessGuard
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        await LockStaffAsync(staffId, ct);
-        await RequireAsync(staffId, manage: true, ct);
+        await guard.LockAndRequireAsync(User.GetUserId(), staffId, ct);
 
         await db.AvailabilityExceptions.Where(e => e.StaffId == staffId && e.Date == day).ExecuteDeleteAsync(ct);
         var rows = request.HasUnavailable
@@ -229,34 +227,14 @@ public sealed class AvailabilityController(BookingDbContext db, AccessResolver a
     public async Task<IActionResult> DeleteException(Guid staffId, string date, CancellationToken ct)
     {
         var day = ParseDate(date);
-        await RequireAsync(staffId, manage: true, ct); // before the lock: see LockStaffAsync
+        await guard.RequireAsync(User.GetUserId(), staffId, manage: true, ct); // before the lock: see StaffAccessGuard
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        await LockStaffAsync(staffId, ct);
-        await RequireAsync(staffId, manage: true, ct);
+        await guard.LockAndRequireAsync(User.GetUserId(), staffId, ct);
 
         var deleted = await db.AvailabilityExceptions.Where(e => e.StaffId == staffId && e.Date == day).ExecuteDeleteAsync(ct);
         if (deleted == 0) throw ApiException.NotFound();
         await transaction.CommitAsync(ct);
         return NoContent();
-    }
-
-    /// <summary>
-    /// The staff row lock (ADR 0002), taken first in the transaction, so the access check that
-    /// follows reads data current as of the lock. Writes check access once before this too, so a
-    /// caller who may not write gets 404 or 403 without ever holding the lock, and can't hold up
-    /// writes or bookings for that staff member. 404 if the staff row does not exist.
-    /// </summary>
-    private async Task LockStaffAsync(Guid staffId, CancellationToken ct)
-    {
-        var exists = await db.Staff.FromSql($"SELECT * FROM staff WHERE id = {staffId} FOR UPDATE").Select(s => s.Id).AnyAsync(ct);
-        if (!exists) throw ApiException.NotFound();
-    }
-
-    /// <summary>404 unless the caller is the business's owner or active staff; 403 if they may view but not set.</summary>
-    private async Task RequireAsync(Guid staffId, bool manage, CancellationToken ct)
-    {
-        var staff = await access.ForStaffAsync(User.GetUserId(), staffId, ct) ?? throw ApiException.NotFound();
-        Access.Require(canView: staff.Business.IsOwner || staff.Business.IsStaff, canAct: !manage || staff.CanManage);
     }
 
     private async Task<WeeklyAvailabilityResponse> WeeklyAsync(Guid staffId, CancellationToken ct)

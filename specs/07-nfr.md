@@ -30,6 +30,7 @@ The API checks these links on every request, so a change (e.g. a staff member re
 | Resend a staff member's invite | No | No | Yes |
 | View weekly availability and date exceptions (customers see open slots instead) | No | Any staff in their business | Any staff in the business |
 | Set weekly availability and date exceptions (R8) | No | Their own | Any staff in the business |
+| View time off | No | Any staff in their business | Any staff in the business |
 | Block time off (R6) | No | Their own | Any staff in the business |
 | Create a booking | For themselves | For a customer, with themselves as the staff member | For a customer, with any staff in the business |
 | View a booking | Their own | Bookings where they are the staff member | Any booking in the business |

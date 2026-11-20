@@ -1152,10 +1152,22 @@ paths:
       tags: [Availability]
       operationId: listTimeOff
       summary: A staff member's time off
+      description: |
+        Viewed like weekly availability: the owner and the business's active staff;
+        anyone else gets 404 (the owner may also view a removed member's). Ordered
+        by start, then id. `from` after `to` is 400 (decided 2026-11-19).
       parameters:
         - $ref: '#/components/parameters/StaffId'
-        - $ref: '#/components/parameters/FromUtc'
-        - $ref: '#/components/parameters/ToUtc'
+        - name: from
+          in: query
+          description: |
+            Only time off that ends after this time, so time off already under way
+            at `from` is included (decided 2026-11-19).
+          schema: { $ref: '#/components/schemas/UtcTimestamp' }
+        - name: to
+          in: query
+          description: Only time off that starts before this time (exclusive).
+          schema: { $ref: '#/components/schemas/UtcTimestamp' }
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
       responses:
@@ -1183,6 +1195,9 @@ paths:
         they are cancelled with reason `TimeOff`. Buffers are part of this
         check: a booking overlaps if its blocked interval (start minus its
         before-buffer to end plus its after-buffer, R1) overlaps the time off.
+        Staff block their own time off, the owner anyone's (also a removed
+        member's). Time off may overlap other time off and may start in the past
+        (decided 2026-11-19).
       parameters:
         - $ref: '#/components/parameters/StaffId'
       requestBody:
@@ -1216,7 +1231,9 @@ paths:
       tags: [Availability]
       operationId: deleteTimeOff
       summary: Remove time off
-      description: Cannot affect bookings, so no confirmation is needed.
+      description: |
+        Cannot affect bookings, so no confirmation is needed. Who may: as for
+        creating it; a colleague gets 403, anyone else 404.
       parameters:
         - name: timeOffId
           in: path
@@ -1563,7 +1580,10 @@ components:
       type: string
       format: uuid
     UtcTimestamp:
-      description: RFC 3339 timestamp in UTC, always with a Z suffix.
+      description: |
+        RFC 3339 timestamp in UTC, always with an uppercase Z suffix; fractional
+        seconds are allowed and kept to the microsecond. An offset such as +02:00,
+        or no zone at all, is 400 (decided 2026-11-19).
       type: string
       format: date-time
       pattern: 'Z$'

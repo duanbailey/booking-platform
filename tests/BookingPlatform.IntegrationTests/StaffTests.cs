@@ -117,6 +117,7 @@ public class StaffTests(ApiFixture fixture) : IClassFixture<ApiFixture>
         string? cursor = null;
         do
         {
+            Assert.True(seen.Count < 10, "the cursor never reached the last page"); // a cursor bug fails, not hangs
             var page = await Json.ReadAsync(await List(owner, businessId,
                 "?limit=1" + (cursor is null ? "" : "&cursor=" + Uri.EscapeDataString(cursor))), HttpStatusCode.OK);
             seen.AddRange(StaffIds(page));

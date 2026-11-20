@@ -105,6 +105,7 @@ public class ServicesTests(ApiFixture fixture) : IClassFixture<ApiFixture>
         string? cursor = null;
         do
         {
+            Assert.True(pages < 10, "the cursor never reached the last page"); // a cursor bug fails, not hangs
             var query = "?limit=2" + (cursor is null ? "" : "&cursor=" + Uri.EscapeDataString(cursor));
             var page = await Json.ReadAsync(await List(owner, businessId, query), HttpStatusCode.OK);
             names.AddRange(Names(page));
