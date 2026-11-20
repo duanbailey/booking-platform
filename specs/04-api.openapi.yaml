@@ -1541,9 +1541,9 @@ components:
     SlotConflict:
       description: |
         `SlotConflict` (R7): the time, buffers included (R1), overlaps another
-        active booking for that staff member. `details` is the conflicting
-        interval only (staff member, start and end); it never includes the
-        other booking's ID or customer.
+        active booking for that staff member. `details` is the requested slot
+        (staff member, start and end, without buffers); it never includes the
+        other booking's ID, customer or times (decided 2026-11-20).
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }

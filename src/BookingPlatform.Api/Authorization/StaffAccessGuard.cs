@@ -32,8 +32,7 @@ public sealed class StaffAccessGuard(BookingDbContext db, AccessResolver access)
     /// </summary>
     public async Task LockAndRequireAsync(Guid callerId, Guid staffId, CancellationToken ct = default)
     {
-        var exists = await db.Staff.FromSql($"SELECT * FROM staff WHERE id = {staffId} FOR UPDATE").Select(s => s.Id).AnyAsync(ct);
-        if (!exists) throw ApiException.NotFound();
+        if (await db.LockStaffAsync(staffId, ct) is null) throw ApiException.NotFound();
         await RequireAsync(callerId, staffId, manage: true, ct);
     }
 }

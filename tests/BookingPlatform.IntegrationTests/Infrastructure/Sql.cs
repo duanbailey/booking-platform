@@ -29,6 +29,20 @@ public sealed class Sql(string connectionString)
         return await command.ExecuteScalarAsync();
     }
 
+    /// <summary>The first row of the query by column name, or null if it returns none.</summary>
+    public async Task<Dictionary<string, object?>?> RowAsync(string sql, object? parameters = null)
+    {
+        await using var connection = new MySqlConnection(connectionString);
+        await connection.OpenAsync();
+        await using var command = new MySqlCommand(sql, connection);
+        AddParameters(command, parameters);
+        await using var reader = await command.ExecuteReaderAsync();
+        if (!await reader.ReadAsync()) return null;
+        var row = new Dictionary<string, object?>();
+        for (var i = 0; i < reader.FieldCount; i++) row[reader.GetName(i)] = reader.IsDBNull(i) ? null : reader.GetValue(i);
+        return row;
+    }
+
     /// <summary>Runs the statement and returns the MySQL error number it fails with.</summary>
     public async Task<int> FailsWithAsync(string sql, object? parameters = null)
     {
@@ -65,6 +79,23 @@ public sealed class Sql(string connectionString)
             await Task.Delay(20);
         }
         throw new Xunit.Sdk.XunitException($"Nothing waited for a row lock on {table}.");
+    }
+
+    /// <summary>Waits until at least <paramref name="count"/> statements are blocked on row locks in <paramref name="table"/>.</summary>
+    public async Task WaitForLockWaitsAsync(string table, int count)
+    {
+        const string waiting =
+            "SELECT COUNT(DISTINCT w.REQUESTING_THREAD_ID) FROM performance_schema.data_lock_waits w " +
+            "JOIN performance_schema.data_locks l ON l.ENGINE_LOCK_ID = w.REQUESTING_ENGINE_LOCK_ID " +
+            "WHERE l.OBJECT_SCHEMA = DATABASE() AND l.OBJECT_NAME = @table";
+
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (Convert.ToInt32(await ScalarAsync(waiting, new { table })) >= count) return;
+            await Task.Delay(20);
+        }
+        throw new Xunit.Sdk.XunitException($"Fewer than {count} statements waited for a row lock on {table}.");
     }
 
     /// <summary>

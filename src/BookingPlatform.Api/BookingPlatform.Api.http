@@ -289,3 +289,17 @@ Authorization: Bearer {{login.response.body.accessToken}}
 ### their own staffId (else 403). Past and beyond-window dates simply give no slots.
 GET {{BookingPlatform.Api_HostAddress}}/v1/services/{{createService.response.body.id}}/slots?from=2026-12-01&to=2026-12-07
 Authorization: Bearer {{login.response.body.accessToken}}
+
+### Book a slot (T14): startUtc must be a start the slots query offers (else 422 SlotUnavailable). customerEmail
+### books on behalf of that account, and overrideMinimumNotice bypasses R3; both are for the owner, or staff with
+### their own staffId (else 403). A taken time is 409 SlotConflict naming only the requested slot (R7).
+# @name createBooking
+POST {{BookingPlatform.Api_HostAddress}}/v1/bookings
+Authorization: Bearer {{login.response.body.accessToken}}
+Content-Type: application/json
+
+{
+  "serviceId": "{{createService.response.body.id}}",
+  "staffId": "<staffId from the slots response>",
+  "startUtc": "2026-12-01T14:00:00Z"
+}

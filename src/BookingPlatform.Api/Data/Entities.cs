@@ -110,6 +110,13 @@ public static class ServiceLimits
     /// <summary>Availability blocks lie within a day and bound the appointment (R8).</summary>
     public const int MaxDurationMinutes = 1_440;
     public const int MaxBufferMinutes = 1_440;
+
+    /// <summary>
+    /// The longest a booking's blocked interval can be (duration plus both buffers at the maxima), so a
+    /// query for bookings overlapping a window can bound blocked_start_utc from below and use the
+    /// (staff_id, status, blocked_start_utc) index as a range scan. Bookings must keep within these maxima.
+    /// </summary>
+    public static readonly TimeSpan MaxBlockedSpan = TimeSpan.FromMinutes(MaxDurationMinutes + 2 * MaxBufferMinutes);
 }
 
 public class Service

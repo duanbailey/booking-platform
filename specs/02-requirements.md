@@ -205,7 +205,7 @@ Scenario (R1, R7): Given the customer is viewing an open slot
 When they select to book the slot
 And the slot's time, including buffers, has already been booked for that staff member
 Then the booking is refused
-And the customer is notified of the conflict, with the conflicting slot's staff member, start time and end time.
+And the customer is notified of the conflict, with the requested slot's staff member, start time and end time (R7).
 
 Scenario (R3): Given the customer is viewing a slot
 When they select to book the slot

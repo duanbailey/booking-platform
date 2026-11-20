@@ -7,7 +7,6 @@ using BookingPlatform.Api.Slots;
 using BookingPlatform.Api.Validation;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using NodaTime;
 
 namespace BookingPlatform.Api.Controllers;
 
@@ -47,17 +46,10 @@ public sealed record SlotsResponse(string BusinessTimeZone, IReadOnlyList<OpenSl
 /// </summary>
 [ApiController]
 [Route("v1")]
-public sealed class SlotsController(BookingDbContext db, TimeProvider time, ILogger<SlotsController> logger) : ControllerBase
+public sealed class SlotsController(BookingDbContext db, TimeProvider time, BusinessZones zones) : ControllerBase
 {
     /// <summary>ADR 0005: a slot query covers at most 30 dates.</summary>
     public const int MaxRangeDays = 30;
-
-    /// <summary>
-    /// The longest a booking's blocked interval can be (duration plus both buffers, at the service
-    /// maxima), so bookings are found by a range scan on (staff_id, status, blocked_start_utc).
-    /// </summary>
-    private static readonly TimeSpan MaxBlockedSpan =
-        TimeSpan.FromMinutes(ServiceLimits.MaxDurationMinutes + 2 * ServiceLimits.MaxBufferMinutes);
 
     [HttpGet("services/{serviceId:guid}/slots")]
     public async Task<SlotsResponse> List(Guid serviceId, [FromQuery] SlotQuery query, CancellationToken ct)
@@ -88,7 +80,7 @@ public sealed class SlotsController(BookingDbContext db, TimeProvider time, ILog
             throw ApiException.Forbidden();
         }
 
-        var zone = ResolveZone(business);
+        var zone = zones.Resolve(business);
         var settings = new SlotSettings(business.MinNoticeMinutes, business.MaxAdvanceDays, business.SlotStepMinutes);
         var slotService = new SlotService(service.DurationMinutes, service.BufferBeforeMinutes, service.BufferAfterMinutes);
         var now = time.GetUtcNow().UtcDateTime;
@@ -106,7 +98,7 @@ public sealed class SlotsController(BookingDbContext db, TimeProvider time, ILog
         if (staffIds.Count == 0) return new SlotsResponse(business.TimeZone, []);
 
         var (windowStart, windowEnd) = (plan.BlockedWindow.Start, plan.BlockedWindow.End);
-        var bookingsFrom = windowStart - MaxBlockedSpan;
+        var bookingsFrom = windowStart - ServiceLimits.MaxBlockedSpan;
         var weekly = await db.AvailabilityRules.AsNoTracking().Where(r => staffIds.Contains(r.StaffId)).ToListAsync(ct);
         var exceptions = await db.AvailabilityExceptions.AsNoTracking()
             .Where(e => staffIds.Contains(e.StaffId) && e.Date >= plan.From && e.Date <= plan.To).ToListAsync(ct);
@@ -127,22 +119,5 @@ public sealed class SlotsController(BookingDbContext db, TimeProvider time, ILog
 
         return new SlotsResponse(business.TimeZone,
             SlotGenerator.Generate(zone, settings, slotService, from, to, now, query.IgnoreMinimumNotice, schedules));
-    }
-
-    /// <summary>
-    /// See <see cref="ZoneResolver"/>. A zone neither tzdb nor the OS knows is bad data, never the caller's
-    /// fault, so it is a 500 (InternalError) with the business and zone in the log.
-    /// </summary>
-    private DateTimeZone ResolveZone(Business business)
-    {
-        var zone = ZoneResolver.Find(business.TimeZone)
-            ?? throw new InvalidOperationException(
-                $"Business {business.Id} has time zone '{business.TimeZone}', which neither NodaTime's tzdb nor the OS zone data knows.");
-        if (!ZoneResolver.IsFromTzdb(zone))
-        {
-            logger.LogWarning("Business {BusinessId} has time zone {TimeZone}, which NodaTime's tzdb {TzdbVersion} lacks; using the OS zone data. Update NodaTime.",
-                business.Id, business.TimeZone, DateTimeZoneProviders.Tzdb.VersionId);
-        }
-        return zone;
     }
 }

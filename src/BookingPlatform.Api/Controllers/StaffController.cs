@@ -161,8 +161,7 @@ public sealed class StaffController(BookingDbContext db, OutboxWriter outbox, Ti
         var serviceIds = request.ServiceIds!;
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
 
-        var staff = await db.Staff.FromSql($"SELECT * FROM staff WHERE id = {staffId} FOR UPDATE").AsNoTracking()
-            .SingleOrDefaultAsync(ct) ?? throw ApiException.NotFound();
+        var staff = await db.LockStaffAsync(staffId, ct) ?? throw ApiException.NotFound();
         var ownerId = await db.Businesses.Where(b => b.Id == staff.BusinessId).Select(b => b.OwnerUserId).SingleAsync(ct);
         Access.Require(canView: true, canAct: ownerId == User.GetUserId());
 

@@ -100,6 +100,30 @@ public sealed class ApiException(int status, ErrorCode code, string message, str
     public static ApiException AlreadyStaff() =>
         new(StatusCodes.Status409Conflict, ErrorCode.AlreadyStaff, "This account is already staff in this business.");
 
+    /// <summary>
+    /// R7: the slot's blocked interval overlaps another active booking (R1). Details are the requested
+    /// slot only, never the other booking's ID, customer or times (decided 2026-11-20).
+    /// </summary>
+    public static ApiException SlotConflict(Guid staffId, DateTime startUtc, DateTime endUtc) =>
+        new(StatusCodes.Status409Conflict, ErrorCode.SlotConflict, "That time is no longer available.", "R7",
+            new { staffId, startUtc, endUtc });
+
+    /// <summary>R8: slot generation would not offer this start for this staff member and service.</summary>
+    public static ApiException SlotUnavailable() =>
+        new(StatusCodes.Status422UnprocessableEntity, ErrorCode.SlotUnavailable, "This time is not an available slot.", "R8");
+
+    /// <summary>R3: the start is inside the business's minimum notice period.</summary>
+    public static ApiException MinimumNotice(int minNoticeMinutes) =>
+        new(StatusCodes.Status422UnprocessableEntity, ErrorCode.MinimumNotice, "This slot is too soon to book.", "R3",
+            new { minNoticeMinutes });
+
+    public static ApiException StaffNotAssignedToService() =>
+        new(StatusCodes.Status422UnprocessableEntity, ErrorCode.StaffNotAssignedToService, "This staff member does not offer this service.");
+
+    /// <summary>Story "Staff or owner books on behalf of a customer": no account has the email.</summary>
+    public static ApiException CustomerNotFound() =>
+        new(StatusCodes.Status422UnprocessableEntity, ErrorCode.CustomerNotFound, "No account exists with this email.");
+
     /// <summary>Resend refused: the account already has a password.</summary>
     public static ApiException InviteNotPending() =>
         new(StatusCodes.Status422UnprocessableEntity, ErrorCode.InviteNotPending, "This account already has a password.");

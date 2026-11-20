@@ -53,6 +53,14 @@ public class BookingDbContext(DbContextOptions<BookingDbContext> options) : DbCo
     public Task<bool> LockUserSharedAsync(Guid userId, CancellationToken ct = default) =>
         Users.FromSql($"SELECT * FROM users WHERE id = {userId} FOR SHARE").Select(u => u.Id).AnyAsync(ct);
 
+    /// <summary>
+    /// The ADR 0002 lock: <c>SELECT ... FROM staff ... FOR UPDATE</c> inside the caller's transaction, so
+    /// changes to one staff member's schedule run one after another. Take any user row locks first
+    /// (ADR 0002 amendment). Returns the row as read under the lock (not tracked), or null if it does not exist.
+    /// </summary>
+    public Task<Staff?> LockStaffAsync(Guid staffId, CancellationToken ct = default) =>
+        Staff.FromSql($"SELECT * FROM staff WHERE id = {staffId} FOR UPDATE").AsNoTracking().SingleOrDefaultAsync(ct);
+
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
         // R2: every timestamp is stored and read as UTC.
