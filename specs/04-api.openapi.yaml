@@ -66,7 +66,10 @@ info:
     5. The server works out the affected set again under the staff lock
        (ADR 0002). If it matches, the change is made; if not, it returns 409
        `ConfirmationRequired` again with the new list. A booking the user was
-       never shown is never cancelled.
+       never shown is never cancelled. "Matches" means the same set of IDs;
+       if nothing needs confirming any more, the change is made whether or
+       not `confirm` was sent. `affectedBookings` is ordered by start, then
+       ID (decided 2026-11-20).
 
     A customer's own "are you sure?" step before cancelling or rescheduling is
     client-only.
@@ -1272,7 +1275,11 @@ paths:
           that starts inside the cancellation window, the confirm pattern
           applies (R4): `details.affectedBookings` lists those bookings. On
           confirmation the new booking is made, the originals are kept, and
-          their staff member and the owner are notified.
+          their staff member and the owner are notified. Inside the window
+          means not started and starting less than N hours from now (decided
+          2026-11-20). This is checked after every other check, so the 409
+          only appears for a booking that would otherwise be made. Staff see
+          every listed booking, a colleague's included.
         - Buffers are snapshotted from the service (ADR 0004). Runs under the
           staff lock (ADR 0002).
       requestBody:

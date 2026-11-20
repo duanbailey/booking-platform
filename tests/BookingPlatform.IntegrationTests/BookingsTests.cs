@@ -630,7 +630,7 @@ public class BookingsTests(FrozenClockApiFixture fixture) : IClassFixture<Frozen
     }
 
     [Fact]
-    public async Task Confirm_is_accepted_and_ignored_until_T15()
+    public async Task A_confirm_with_nothing_to_confirm_goes_ahead()
     {
         var shop = await ShopAsync();
         var body = Body(shop, shop.StaffA, On(Day, 10));

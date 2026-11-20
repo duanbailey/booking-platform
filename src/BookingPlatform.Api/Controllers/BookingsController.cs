@@ -29,9 +29,8 @@ public sealed record BookingResponse(
 
 /// <summary>
 /// Creating bookings (T14): stories "Customer books a slot", "Staff or owner books on behalf of a customer"
-/// and "Owner or staff overrides the minimum notice period"; R1, R3, R7, R8; ADR 0002 and ADR 0004. The R4
-/// rebook check comes in T15; until then `confirm` is validated and ignored. Decisions 2026-11-20 are in
-/// plan/tasks.md (T14).
+/// and "Owner or staff overrides the minimum notice period"; R1, R3, R7, R8; ADR 0002 and ADR 0004; and the R4
+/// rebook check through the confirm pattern (T15). Decisions 2026-11-20 are in plan/tasks.md (T14, T15).
 /// </summary>
 [ApiController]
 [Route("v1")]
@@ -44,7 +43,8 @@ public sealed class BookingsController(
     /// Books a slot. Checks, in order (decided 2026-11-20): 404 (service; staff not in its business), 403
     /// (customerEmail or the override without the right), 422 CustomerNotFound, 422 SlotUnavailable for a
     /// removed staff member, 422 StaffNotAssignedToService, 422 SlotUnavailable for a start slot generation
-    /// would not offer even ignoring notice and bookings (R8), 422 MinimumNotice (R3), 409 SlotConflict (R1, R7).
+    /// would not offer even ignoring notice and bookings (R8), 422 MinimumNotice (R3), 409 SlotConflict (R1, R7),
+    /// and last 409 ConfirmationRequired (R4), so the warning only appears for a booking that would be made.
     /// </summary>
     [HttpPost("bookings")]
     public async Task<IActionResult> Create(CreateBookingRequest request, CancellationToken ct)
@@ -67,11 +67,16 @@ public sealed class BookingsController(
         }
 
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        // ADR 0002 lock order: user rows before the staff row. The booking and history inserts reference the
-        // customer and the caller, and those foreign keys take shared locks on their rows; take them first.
+        // ADR 0002 lock order: user rows (in id order) before the staff row. The booking and history inserts
+        // reference the customer and the caller, and those foreign keys take shared locks on their rows; take
+        // them first. The customer's is exclusive, so one customer's bookings run one at a time across staff
+        // and the R4 check below sees every booking of theirs (decided 2026-11-20); the caller's is shared.
         foreach (var userId in new[] { customerId, callerId }.Distinct().Order())
         {
-            if (await db.LockUserSharedAsync(userId, ct)) continue;
+            var exists = userId == customerId
+                ? await db.LockUserAsync(userId, ct) is not null
+                : await db.LockUserSharedAsync(userId, ct);
+            if (exists) continue;
             // The account was deleted since it was looked up (or since the token was issued).
             throw userId == callerId ? ApiException.Unauthenticated() : ApiException.CustomerNotFound();
         }
@@ -98,6 +103,11 @@ public sealed class BookingsController(
         var blocked = BookingScheduler.BlockedInterval(start, service); // ADR 0004: snapshotted now
         if (await scheduler.OverlapsActiveBookingAsync(staffId, blocked, ct))
             throw ApiException.SlotConflict(staffId, slot.StartUtc, slot.EndUtc); // R7: the requested slot only
+        // R4: the customer's bookings they can no longer cancel still stand; confirm before booking again.
+        var originals = await scheduler.InsideCancellationWindowAsync(customerId, business, now, ct);
+        ConfirmGate.Require(originals, request.Confirm?.AffectedBookingIds, "R4", onBehalf
+            ? "The customer already has a booking with this business inside the cancellation window. It still stands; confirm to book this slot as well."
+            : "You already have a booking with this business that can no longer be cancelled online. It still stands: contact the business to cancel it, or confirm to book this slot as well.");
 
         // The role the actor acted in (decided 2026-11-20): Owner or Staff when a staff privilege was used
         // (booking on behalf, or the override when it was needed), Owner if they are both; else Customer.
@@ -118,6 +128,13 @@ public sealed class BookingsController(
         });
         outbox.Add(new BookingCreated(booking.Id, booking.Version, business.Id, business.TimeZone, serviceId, customerId,
             new EventSlot(staffId, booking.StartUtc, booking.EndUtc), new EventActor(callerId, role)));
+        // R4: the original's staff member and the owner are told the customer holds both (one event per original).
+        foreach (var original in originals)
+        {
+            outbox.Add(new RebookedInsideWindow(business.Id, business.TimeZone, customerId, original.BookingId,
+                new EventSlot(original.StaffId, original.StartUtc, original.EndUtc), booking.Id,
+                new EventSlot(staffId, booking.StartUtc, booking.EndUtc)));
+        }
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
 

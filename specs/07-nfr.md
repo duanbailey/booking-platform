@@ -48,3 +48,4 @@ An admin can create owner accounts and resend an owner's invite (see `specs/02-r
 - **404** when the user cannot view the resource at all (e.g. a customer asking for someone else's booking), so the API never reveals that it exists.
 - **403** when the user can view the resource but cannot perform the action (e.g. a staff member changing business settings).
 - A 409 conflict (R7) never includes another booking's ID or customer details, whoever the caller is.
+- Exception (decided 2026-11-20): when staff book on behalf of a customer who holds bookings inside the cancellation window (R4), the 409 `ConfirmationRequired` lists all of them (ID, staff member, start, end), including bookings with other staff, so the staff member can be warned and confirm. It gives no other access: viewing such a booking is still 404.

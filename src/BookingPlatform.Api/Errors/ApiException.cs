@@ -108,6 +108,10 @@ public sealed class ApiException(int status, ErrorCode code, string message, str
         new(StatusCodes.Status409Conflict, ErrorCode.SlotConflict, "That time is no longer available.", "R7",
             new { staffId, startUtc, endUtc });
 
+    /// <summary>The confirm pattern (R2, R4, R6): nothing has changed; details list the affected bookings.</summary>
+    public static ApiException ConfirmationRequired(string rule, string message, Bookings.ConfirmationDetails details) =>
+        new(StatusCodes.Status409Conflict, ErrorCode.ConfirmationRequired, message, rule, details);
+
     /// <summary>R8: slot generation would not offer this start for this staff member and service.</summary>
     public static ApiException SlotUnavailable() =>
         new(StatusCodes.Status422UnprocessableEntity, ErrorCode.SlotUnavailable, "This time is not an available slot.", "R8");

@@ -52,6 +52,41 @@ public sealed class BookingScheduler(BookingDbContext db)
             && b.BlockedStartUtc > from && b.BlockedStartUtc < blocked.End && b.BlockedEndUtc > blocked.Start, ct);
     }
 
+    /// <summary>
+    /// R4: the customer's bookings with this business that they can no longer cancel. Decided 2026-11-20:
+    /// Confirmed, with any staff member or service of the business, not started, and starting less than the
+    /// cancellation window from now (exactly N hours away may still be cancelled, so it is outside).
+    /// <para>
+    /// Concurrency (code review, 2026-11-20). Callers hold the customer's user row FOR UPDATE. Every operation
+    /// that adds a booking for a customer or moves one of theirs takes that lock too (creation here; reschedule
+    /// must, T17), so no booking can enter the window meanwhile. A booking can still be cancelled or moved out
+    /// under its own staff member's lock alone, so each candidate from the snapshot is read again with
+    /// FOR SHARE by primary key: that sees its current values and holds it until the caller commits, so a listed
+    /// or notified booking can't be cancelled in between. Primary-key locks avoid gap locks on the
+    /// (customer_id, start_utc) range, which would block other customers' bookings.
+    /// </para>
+    /// </summary>
+    public async Task<List<AffectedBooking>> InsideCancellationWindowAsync(Guid customerId, Business business, DateTime nowUtc, CancellationToken ct)
+    {
+        var windowEnd = nowUtc.AddHours(business.CancellationWindowHours);
+        var candidates = await (
+                from b in db.Bookings
+                join s in db.Staff on b.StaffId equals s.Id
+                where b.CustomerId == customerId && s.BusinessId == business.Id && b.Status == BookingStatus.Confirmed
+                    && b.StartUtc > nowUtc && b.StartUtc < windowEnd
+                select b.Id)
+            .ToListAsync(ct);
+
+        var inside = new List<AffectedBooking>();
+        foreach (var id in candidates)
+        {
+            var current = await db.Bookings.FromSql($"SELECT * FROM bookings WHERE id = {id} FOR SHARE").AsNoTracking().SingleAsync(ct);
+            if (current.Status == BookingStatus.Confirmed && current.StartUtc > nowUtc && current.StartUtc < windowEnd)
+                inside.Add(new AffectedBooking(current.Id, current.StaffId, current.StartUtc, current.EndUtc));
+        }
+        return inside;
+    }
+
     /// <summary>ADR 0004: [start - before-buffer, end + after-buffer), from the service's buffers now.</summary>
     public static UtcInterval BlockedInterval(DateTime startUtc, Service service) => new(
         startUtc.AddMinutes(-service.BufferBeforeMinutes),
