@@ -26,11 +26,11 @@ namespace BookingPlatform.Api.Data.Migrations
                         .HasColumnType("char(36)")
                         .HasColumnName("id");
 
-                    b.Property<DateOnly>("Date")
+                    b.Property<DateTime>("Date")
                         .HasColumnType("date")
                         .HasColumnName("date");
 
-                    b.Property<TimeOnly?>("EndLocal")
+                    b.Property<TimeSpan?>("EndLocal")
                         .HasColumnType("time")
                         .HasColumnName("end_local");
 
@@ -38,7 +38,7 @@ namespace BookingPlatform.Api.Data.Migrations
                         .HasColumnType("char(36)")
                         .HasColumnName("staff_id");
 
-                    b.Property<TimeOnly?>("StartLocal")
+                    b.Property<TimeSpan?>("StartLocal")
                         .HasColumnType("time")
                         .HasColumnName("start_local");
 
@@ -64,7 +64,7 @@ namespace BookingPlatform.Api.Data.Migrations
                         .HasColumnType("enum('Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday')")
                         .HasColumnName("day_of_week");
 
-                    b.Property<TimeOnly>("EndLocal")
+                    b.Property<TimeSpan>("EndLocal")
                         .HasColumnType("time")
                         .HasColumnName("end_local");
 
@@ -72,7 +72,7 @@ namespace BookingPlatform.Api.Data.Migrations
                         .HasColumnType("char(36)")
                         .HasColumnName("staff_id");
 
-                    b.Property<TimeOnly>("StartLocal")
+                    b.Property<TimeSpan>("StartLocal")
                         .HasColumnType("time")
                         .HasColumnName("start_local");
 
@@ -154,6 +154,8 @@ namespace BookingPlatform.Api.Data.Migrations
                     b.HasIndex("ServiceId");
 
                     b.HasIndex("CustomerId", "StartUtc");
+
+                    b.HasIndex("StaffId", "StartUtc");
 
                     b.HasIndex("StaffId", "Status", "BlockedStartUtc");
 

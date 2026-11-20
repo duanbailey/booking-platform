@@ -303,3 +303,19 @@ Content-Type: application/json
   "staffId": "<staffId from the slots response>",
   "startUtc": "2026-12-01T14:00:00Z"
 }
+
+### A booking (T16): its customer, its staff member or the owner; anyone else 404.
+GET {{BookingPlatform.Api_HostAddress}}/v1/bookings/{{createBooking.response.body.id}}
+Authorization: Bearer {{login.response.body.accessToken}}
+
+### Its history (T16, ADR 0003), oldest first; actor.userId only for the staff member and the owner.
+GET {{BookingPlatform.Api_HostAddress}}/v1/bookings/{{createBooking.response.body.id}}/history
+Authorization: Bearer {{login.response.body.accessToken}}
+
+### My bookings as customer (T16). Optional status=Confirmed|Cancelled, from/to on the start (from inclusive, to exclusive), limit, cursor.
+GET {{BookingPlatform.Api_HostAddress}}/v1/me/bookings?status=Confirmed
+Authorization: Bearer {{login.response.body.accessToken}}
+
+### A business's bookings (T16): the owner sees all (optional staffId); staff only their own (another staffId is 403); others 404.
+GET {{BookingPlatform.Api_HostAddress}}/v1/businesses/{{businessId}}/bookings
+Authorization: Bearer {{login.response.body.accessToken}}

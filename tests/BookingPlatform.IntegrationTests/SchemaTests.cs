@@ -427,6 +427,18 @@ public class SchemaTests(TestDatabase database) : IClassFixture<TestDatabase>
     // ------------------------------------------------------------ Outbox and notifications
 
     [Fact]
+    public async Task Bookings_have_an_index_for_staff_lists_ordered_by_start()
+    {
+        // T16 code review: GET /v1/businesses/{id}/bookings filters by staff member(s) and orders by (start, id);
+        // InnoDB appends the primary key, so (staff_id, start_utc) serves the order and the keyset.
+        var columns = await _sql.ScalarAsync(
+            "SELECT GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX) FROM information_schema.STATISTICS " +
+            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'bookings' " +
+            "GROUP BY INDEX_NAME HAVING GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX) = 'staff_id,start_utc'");
+        Assert.Equal("staff_id,start_utc", columns);
+    }
+
+    [Fact]
     public async Task Services_have_an_index_for_the_list_order()
     {
         // T9: GET /v1/businesses/{id}/services filters by business and orders by (name, id).

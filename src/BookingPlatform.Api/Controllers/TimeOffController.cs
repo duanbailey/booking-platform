@@ -67,7 +67,7 @@ public sealed class TimeOffController(BookingDbContext db, StaffAccessGuard guar
         var (from, to) = (range.FromUtc, range.ToUtc);
         if (from > to) throw ApiException.ValidationFailed("from", "Must not be after to.");
         await guard.RequireAsync(User.GetUserId(), staffId, manage: false, ct);
-        var after = page.AfterStartId();
+        var after = page.AfterStartId(StartIdList.TimeOff);
 
         var query = after is null
             ? db.TimeOff.Where(t => t.StaffId == staffId)
@@ -78,7 +78,7 @@ public sealed class TimeOffController(BookingDbContext db, StaffAccessGuard guar
         if (to is { } u) query = query.Where(t => t.StartUtc < u);
         var fetched = await query.AsNoTracking().OrderBy(t => t.StartUtc).ThenBy(t => t.Id).Take(page.Limit + 1).ToListAsync(ct);
 
-        return PageBuilder.From(fetched, page.Limit, t => new StartIdCursor(t.StartUtc, t.Id).Encode(), TimeOffResponse.From);
+        return PageBuilder.From(fetched, page.Limit, t => new StartIdCursor(t.StartUtc, t.Id).Encode(StartIdList.TimeOff), TimeOffResponse.From);
     }
 
     /// <summary>Blocks time off for the staff member, under the staff lock (ADR 0002), as the R6 check will need (T18).</summary>

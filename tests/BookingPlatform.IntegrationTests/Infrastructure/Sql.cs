@@ -43,6 +43,24 @@ public sealed class Sql(string connectionString)
         return row;
     }
 
+    /// <summary>Every row of the query, by column name.</summary>
+    public async Task<List<Dictionary<string, object?>>> RowsAsync(string sql, object? parameters = null)
+    {
+        await using var connection = new MySqlConnection(connectionString);
+        await connection.OpenAsync();
+        await using var command = new MySqlCommand(sql, connection);
+        AddParameters(command, parameters);
+        await using var reader = await command.ExecuteReaderAsync();
+        var rows = new List<Dictionary<string, object?>>();
+        while (await reader.ReadAsync())
+        {
+            var row = new Dictionary<string, object?>();
+            for (var i = 0; i < reader.FieldCount; i++) row[reader.GetName(i)] = reader.IsDBNull(i) ? null : reader.GetValue(i);
+            rows.Add(row);
+        }
+        return rows;
+    }
+
     /// <summary>Runs the statement and returns the MySQL error number it fails with.</summary>
     public async Task<int> FailsWithAsync(string sql, object? parameters = null)
     {

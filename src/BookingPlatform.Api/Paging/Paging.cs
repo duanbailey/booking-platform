@@ -41,8 +41,8 @@ public sealed class PageQuery
     public DateCursor? AfterDate() => Cursor is null ? null : DateCursor.TryDecode(Cursor) ?? throw InvalidCursor();
 
     /// <summary>For lists ordered by (start, id): the decoded cursor, or null for the first page.</summary>
-    /// <exception cref="ApiException">ValidationFailed naming cursor if it is not such a cursor.</exception>
-    public StartIdCursor? AfterStartId() => Cursor is null ? null : StartIdCursor.TryDecode(Cursor) ?? throw InvalidCursor();
+    /// <exception cref="ApiException">ValidationFailed naming cursor if it is not a cursor from this kind of list.</exception>
+    public StartIdCursor? AfterStartId(StartIdList list) => Cursor is null ? null : StartIdCursor.TryDecode(Cursor, list) ?? throw InvalidCursor();
 
     private static ApiException InvalidCursor() => ApiException.ValidationFailed("cursor", "Is not a cursor from a previous page.");
 }
@@ -99,18 +99,32 @@ public sealed record NameIdCursor(string Name, Guid Id)
     private sealed record Wire(string? N, Guid? I);
 }
 
-/// <summary>A cursor for lists ordered by a UTC start, then id: the last item's start and id.</summary>
+/// <summary>The kinds of list ordered by a UTC instant, then id; each refuses the others' cursors.</summary>
+public enum StartIdList
+{
+    /// <summary>GET /v1/me/bookings and GET /v1/businesses/{id}/bookings: the same items in the same order.</summary>
+    Bookings,
+    BookingHistory,
+    TimeOff,
+}
+
+/// <summary>
+/// A cursor for lists ordered by a UTC instant (a start, or a history entry's time), then id: the last
+/// item's instant and id, and the kind of list, so a cursor from another kind of list is refused (code
+/// review 2026-11-20).
+/// </summary>
 public sealed record StartIdCursor(DateTime Start, Guid Id)
 {
-    public string Encode() => CursorCodec.Encode(new Wire(Start.Ticks, Id));
+    public string Encode(StartIdList list) => CursorCodec.Encode(new Wire(Start.Ticks, Id, list.ToString()));
 
-    public static StartIdCursor? TryDecode(string cursor) =>
-        CursorCodec.TryDecode<Wire>(cursor) is { S: { } ticks and >= 0 and <= 3155378975999999999, I: { } id }
+    public static StartIdCursor? TryDecode(string cursor, StartIdList list) =>
+        CursorCodec.TryDecode<Wire>(cursor) is { S: { } ticks and >= 0 and <= 3155378975999999999, I: { } id, K: { } kind }
+            && kind == list.ToString()
             ? new StartIdCursor(new DateTime(ticks, DateTimeKind.Utc), id)
             : null;
 
-    /// <summary>Ticks, so the start round-trips exactly.</summary>
-    private sealed record Wire(long? S, Guid? I);
+    /// <summary>Ticks, so the start round-trips exactly; K is the kind of list.</summary>
+    private sealed record Wire(long? S, Guid? I, string? K);
 }
 
 /// <summary>Pages a query that is already in list order and filtered to items after the cursor.</summary>

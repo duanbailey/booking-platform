@@ -259,6 +259,7 @@ public class BookingDbContext(DbContextOptions<BookingDbContext> options) : DbCo
             // R1, R7: overlap check for a staff member's active bookings, under the ADR 0002 lock.
             e.HasIndex(x => new { x.StaffId, x.Status, x.BlockedStartUtc });
             e.HasIndex(x => new { x.CustomerId, x.StartUtc });
+            e.HasIndex(x => new { x.StaffId, x.StartUtc }); // staff and business booking lists by (start, id) (T16)
         });
 
         modelBuilder.Entity<BookingHistory>(e =>
