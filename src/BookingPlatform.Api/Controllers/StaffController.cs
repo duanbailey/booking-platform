@@ -1,12 +1,14 @@
 using System.ComponentModel.DataAnnotations;
 using BookingPlatform.Api.Auth;
 using BookingPlatform.Api.Authorization;
+using BookingPlatform.Api.Bookings;
 using BookingPlatform.Api.Data;
 using BookingPlatform.Api.Errors;
 using BookingPlatform.Api.Events;
 using BookingPlatform.Api.Paging;
 using BookingPlatform.Api.Validation;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.EntityFrameworkCore;
 using MySql.Data.MySqlClient;
 
@@ -24,14 +26,18 @@ public sealed record SetStaffServicesRequest([Required] List<Guid>? ServiceIds);
 /// <summary>The PUT response: the assigned services, by name (ignoring case and accents), then id.</summary>
 public sealed record StaffServicesResponse(IReadOnlyList<Guid> ServiceIds);
 
+/// <summary>POST /v1/staff/{staffId}/remove body, optional: the bookings shown in a previous 409 (R6).</summary>
+public sealed record RemoveStaffRequest(ConfirmRequest? Confirm);
+
 /// <summary>
-/// Staff (stories "Owner adds staff", "Owner assigns staff to services"). Any signed-in user may
-/// list a business's active staff; only the owner may add staff or set their services: 404 if the
-/// business or staff member does not exist, otherwise 403 (specs/07-nfr.md). Removal is T20.
+/// Staff (stories "Owner adds staff", "Owner removes staff", "Owner assigns staff to services"). Any
+/// signed-in user may list a business's active staff; only the owner may add or remove staff or set their
+/// services: 404 if the business or staff member does not exist, otherwise 403 (specs/07-nfr.md).
 /// </summary>
 [ApiController]
 [Route("v1")]
-public sealed class StaffController(BookingDbContext db, OutboxWriter outbox, TimeProvider time) : ControllerBase
+public sealed class StaffController(
+    BookingDbContext db, OutboxWriter outbox, TimeProvider time, BookingScheduler scheduler, BookingCanceller canceller) : ControllerBase
 {
     private const int MySqlDuplicateKey = 1062;
 
@@ -147,6 +153,50 @@ public sealed class StaffController(BookingDbContext db, OutboxWriter outbox, Ti
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
         return new StaffResponse(staff.Id, businessId, user.Id, user.Name, null);
+    }
+
+    /// <summary>
+    /// Owner only (story "Owner removes staff", R6). The member's Confirmed bookings that have not started go
+    /// through the confirm pattern; on confirmation they are cancelled with reason StaffRemoved in the same
+    /// transaction that sets removed_at (the row is kept, with its services, availability and time off, so
+    /// restoring brings them back). Decisions 2026-11-23: a removed member is a 200 no-op; the owner may remove
+    /// their own staff row; no event for the removal itself. Locks: the owner's row FOR SHARE (cancelled_by
+    /// references it), then the staff row (ADR 0002); everything after is read under them.
+    /// </summary>
+    [HttpPost("staff/{staffId:guid}/remove")]
+    public async Task<StaffResponse> Remove(
+        Guid staffId, [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] RemoveStaffRequest? request, CancellationToken ct)
+    {
+        var callerId = User.GetUserId();
+        // Before any lock, so a caller who may not do this never holds anyone up. The owner never changes.
+        var ownerId = await (from s in db.Staff join b in db.Businesses on s.BusinessId equals b.Id where s.Id == staffId select (Guid?)b.OwnerUserId)
+            .SingleOrDefaultAsync(ct) ?? throw ApiException.NotFound();
+        Access.Require(canView: true, canAct: ownerId == callerId);
+
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        if (await db.LockUsersAsync([(callerId, false)], ct) is not null) throw ApiException.Unauthenticated();
+        var staff = await db.LockStaffAsync(staffId, ct) ?? throw ApiException.NotFound();
+        var name = await db.Users.Where(u => u.Id == staff.UserId).Select(u => u.Name).SingleAsync(ct);
+        if (staff.RemovedAt is not null) // already removed: nothing to do (decided 2026-11-23)
+            return new StaffResponse(staff.Id, staff.BusinessId, staff.UserId, name, staff.RemovedAt);
+
+        var now = time.GetUtcNow().UtcDateTime;
+        now = now.AddTicks(-(now.Ticks % 10)); // datetime(6): the response shows exactly what is stored
+        var affected = await scheduler.NotStartedAsync(staffId, now, ct);
+        ConfirmGate.Require(affected.Select(b => new AffectedBooking(b.Id, b.StaffId, b.StartUtc, b.EndUtc)).ToList(),
+            request?.Confirm?.AffectedBookingIds, "R6",
+            $"This staff member has {affected.Count} booking(s) that have not started; confirming removes them, cancels those bookings and notifies everyone affected.");
+
+        if (affected.Count > 0)
+        {
+            var business = await db.Businesses.AsNoTracking().SingleAsync(b => b.Id == staff.BusinessId, ct);
+            // R6: business-initiated, so the R4 window doesn't apply.
+            await canceller.CancelAsync(affected, business, callerId, ActorRole.Owner, CancellationReason.StaffRemoved, now, ct);
+        }
+        await db.Staff.Where(s => s.Id == staffId).ExecuteUpdateAsync(s => s.SetProperty(x => x.RemovedAt, now), ct);
+        await db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
+        return new StaffResponse(staff.Id, staff.BusinessId, staff.UserId, name, now);
     }
 
     /// <summary>

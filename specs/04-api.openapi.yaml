@@ -921,6 +921,12 @@ paths:
         pattern; on confirmation they are cancelled with reason `StaffRemoved`.
         Sets `removedAt`; the row is kept. Takes the staff lock (ADR 0002). A
         POST action rather than DELETE because it takes a confirmation body.
+        Decided 2026-11-23: the body is optional (none, empty or `{}` means
+        not confirmed); a booking in progress is not affected; removing a
+        removed member is a 200 no-op returning its original `removedAt`; the
+        owner may remove their own staff row; no event is emitted for the
+        removal itself, only `BookingCancelled` per cancelled booking; 404 only
+        for an unknown staff member, 403 for anyone but the owner.
       parameters:
         - $ref: '#/components/parameters/StaffId'
       requestBody:
@@ -938,6 +944,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Staff' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }

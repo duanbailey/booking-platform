@@ -132,6 +132,15 @@ public sealed class BookingScheduler(BookingDbContext db)
         return outside;
     }
 
+    /// <summary>
+    /// R6 (T20): the staff member's Confirmed bookings that have not started (start after now), however far ahead.
+    /// Read under the staff lock.
+    /// </summary>
+    public Task<List<Booking>> NotStartedAsync(Guid staffId, DateTime nowUtc, CancellationToken ct) =>
+        db.Bookings.AsNoTracking()
+            .Where(b => b.StaffId == staffId && b.Status == BookingStatus.Confirmed && b.StartUtc > nowUtc)
+            .ToListAsync(ct);
+
     /// <summary>ADR 0004: [start - before-buffer, end + after-buffer), from the service's buffers now.</summary>
     public static UtcInterval BlockedInterval(DateTime startUtc, Service service) => new(
         startUtc.AddMinutes(-service.BufferBeforeMinutes),
