@@ -106,6 +106,8 @@ public enum StartIdList
     Bookings,
     BookingHistory,
     TimeOff,
+    /// <summary>GET /v1/businesses/{id}/time-zone-changes: (changedAt, id), newest first (T22).</summary>
+    TimeZoneChanges,
 }
 
 /// <summary>

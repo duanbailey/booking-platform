@@ -569,6 +569,13 @@ paths:
         they are cancelled with reason `AvailabilityChanged` (R6). Customers of
         remaining bookings whose local time changes are notified. Takes the
         staff lock for every staff member in the business (ADR 0002).
+        Decided 2026-11-23: the zone is compared and stored canonically, so an
+        alias of the current zone is a no-op too; affected bookings are
+        Confirmed ones that have not started, checked against each date's
+        availability in the new zone, and the 409's `rule` is R6; a remaining
+        booking is notified when its local start or local end (date and
+        time) differs between the two zones; a booking in progress is neither
+        cancelled nor notified.
       parameters:
         - $ref: '#/components/parameters/BusinessId'
       requestBody:
@@ -606,7 +613,9 @@ paths:
       tags: [Businesses]
       operationId: listTimeZoneChanges
       summary: Time zone change audit log (R2)
-      description: Owner only. Newest first.
+      description: |
+        Owner only (404 for an unknown business, 403 for anyone else). Newest
+        first: by changedAt, then id, both descending.
       parameters:
         - $ref: '#/components/parameters/BusinessId'
         - $ref: '#/components/parameters/Limit'
@@ -1865,8 +1874,13 @@ components:
         slotStepMinutes: { $ref: '#/components/schemas/SlotStepMinutes' }
     TimeZoneChange:
       type: object
-      required: [businessId, oldTimeZone, newTimeZone, changedBy, changedAt]
+      required: [id, businessId, oldTimeZone, newTimeZone, changedBy, changedAt]
       properties:
+        id:
+          $ref: '#/components/schemas/Id'
+          description: |
+            The change's ID; each BookingLocalTimeChanged event names it as
+            timeZoneChangeId (added 2026-11-23).
         businessId: { $ref: '#/components/schemas/Id' }
         oldTimeZone: { $ref: '#/components/schemas/IanaTimeZone' }
         newTimeZone: { $ref: '#/components/schemas/IanaTimeZone' }

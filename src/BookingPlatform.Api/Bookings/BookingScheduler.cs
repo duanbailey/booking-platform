@@ -121,8 +121,19 @@ public sealed class BookingScheduler(BookingDbContext db)
             query = query.Where(b => b.StartUtc >= from && b.StartUtc < to);
         }
 
+        return Outside(await query.ToListAsync(ct), zone, onlyDate, blocksOn);
+    }
+
+    /// <summary>
+    /// The bookings, of those given, that don't fit the availability <paramref name="blocksOn"/> gives for their
+    /// business-local date (null: a date the change doesn't govern), on <paramref name="onlyDate"/> if set. Pure, so a
+    /// caller that has loaded the bookings already (the time zone change, T22) makes no further queries.
+    /// </summary>
+    public static List<Booking> Outside(IEnumerable<Booking> bookings, DateTimeZone zone, DateOnly? onlyDate,
+        Func<DateOnly, IReadOnlyCollection<(TimeOnly Start, TimeOnly End)>?> blocksOn)
+    {
         var outside = new List<Booking>();
-        foreach (var booking in await query.ToListAsync(ct))
+        foreach (var booking in bookings)
         {
             var bookingDate = AvailabilityFit.LocalDate(zone, booking.StartUtc);
             if (onlyDate is not null && bookingDate != onlyDate) continue;
