@@ -1,0 +1,1 @@
+{"data": {"role": "Staff", "userId": "0190a000-0000-7000-8000-000000000003", "inviteId": null, "businessId": "0190a000-0000-7000-8000-000000000010", "grantedByUserId": "0190a000-0000-7000-8000-000000000014"}, "eventId": "0190a000-0000-7000-8000-0000000000ff", "eventType": "AccessGranted", "occurredAt": "2026-11-30T08:00:00.000Z", "correlationId": "example", "schemaVersion": 1}

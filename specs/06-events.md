@@ -24,6 +24,7 @@ Every event uses the [envelope](events/envelope.v1.schema.json): `eventId`, `eve
 - `correlationId` is the ID of the request that caused the event, logged by the worker (specs/07-nfr.md).
 - Events carry IDs, not names or email addresses. The worker looks up contact details when it sends, so personal data stays out of queues, the dead-letter queue and logs.
 - A slot is the booked interval without buffers. Buffers are not needed by any consumer.
+- [events/examples/](events/examples/) holds one example of each event the API publishes, exactly as the relay sends it (MySQL's canonical JSON, keys sorted). The API's tests regenerate and compare them, and the worker's tests validate them, so a change on either side that the other would reject fails a test (decided 2026-11-23).
 
 ## Versioning
 

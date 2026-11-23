@@ -4,15 +4,22 @@
   "private": true,
   "description": "Notification worker: consumes booking events from SQS and sends email via SES.",
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && node scripts/copy-schemas.js",
     "typecheck": "tsc --noEmit",
     "test": "jest"
   },
   "devDependencies": {
+    "@types/aws-lambda": "8.10.164",
     "@types/jest": "^30.0.0",
     "@types/node": "^26.6.6",
     "jest": "^30.5.2",
     "ts-jest": "^29.4.15",
     "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@aws-sdk/client-sesv2": "3.1176.0",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
+    "mysql2": "3.24.6"
   }
 }
