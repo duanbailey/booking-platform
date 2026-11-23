@@ -369,6 +369,10 @@ namespace BookingPlatform.Api.Data.Migrations
                         .HasColumnType("char(36)")
                         .HasColumnName("id");
 
+                    b.Property<int>("Attempts")
+                        .HasColumnType("int")
+                        .HasColumnName("attempts");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime(6)")
                         .HasColumnName("created_at");
@@ -379,11 +383,20 @@ namespace BookingPlatform.Api.Data.Migrations
                         .HasColumnType("varchar(100)")
                         .HasColumnName("event_type");
 
+                    b.Property<string>("LastError")
+                        .HasMaxLength(1000)
+                        .HasColumnType("varchar(1000)")
+                        .HasColumnName("last_error");
+
                     b.Property<string>("MessageGroupId")
                         .IsRequired()
                         .HasMaxLength(128)
                         .HasColumnType("varchar(128)")
                         .HasColumnName("message_group_id");
+
+                    b.Property<DateTime?>("NextAttemptAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("next_attempt_at");
 
                     b.Property<string>("Payload")
                         .IsRequired()
@@ -398,9 +411,19 @@ namespace BookingPlatform.Api.Data.Migrations
                         .HasColumnType("int")
                         .HasColumnName("schema_version");
 
+                    b.Property<long>("Seq")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("seq");
+
                     b.HasKey("Id");
 
-                    b.HasIndex("PublishedAt", "CreatedAt");
+                    b.HasIndex("Seq")
+                        .IsUnique();
+
+                    b.HasIndex("PublishedAt", "Seq");
+
+                    b.HasIndex("MessageGroupId", "PublishedAt", "Seq");
 
                     b.ToTable("outbox", (string)null);
                 });

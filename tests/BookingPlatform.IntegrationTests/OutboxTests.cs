@@ -29,6 +29,23 @@ public class OutboxTests(ApiFixture fixture) : IClassFixture<ApiFixture>
     };
 
     [Fact]
+    public async Task The_database_assigns_increasing_seq_values_and_the_writer_never_sets_them()
+    {
+        // T21 (decided 2026-11-23): the relay orders each message group by seq, so it must come from the database.
+        await using var db = fixture.Database.CreateContext();
+        var first = Writer(db).Add(SampleEvents.All["BookingCreated"]);
+        first.Seq = 999_999_999; // ignored on insert
+        await db.SaveChangesAsync();
+        var second = Writer(db).Add(SampleEvents.All["BookingCreated"]);
+        await db.SaveChangesAsync();
+
+        var seqs = await fixture.Database.CreateContext().Outbox.AsNoTracking()
+            .Where(m => m.Id == first.Id || m.Id == second.Id).ToDictionaryAsync(m => m.Id, m => m.Seq);
+        Assert.True(seqs[first.Id] > 0 && seqs[first.Id] < 999_999_999, $"seq {seqs[first.Id]}");
+        Assert.True(seqs[second.Id] > seqs[first.Id]);
+    }
+
+    [Fact]
     public async Task Event_is_written_when_the_transaction_commits()
     {
         await using var db = fixture.Database.CreateContext();

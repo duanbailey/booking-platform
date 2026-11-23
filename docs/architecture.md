@@ -14,7 +14,7 @@ flowchart LR
 
         subgraph ecs["ECS Fargate"]
             api["C# Web API<br/>REST /v1, JWT auth,<br/>rate limits, staff row locks"]
-            relay["Outbox relay<br/>background service in the API<br/>(ADR 0008, T21)"]
+            relay["Outbox relay<br/>background service in the API<br/>(ADR 0008, built in T21)"]
             cli["Admin CLI<br/>one-off task, same image<br/>admin grant | revoke | list"]
         end
 
@@ -35,7 +35,7 @@ flowchart LR
     operator -- "run task" --> cli
     api -- "change + outbox row,<br/>one transaction" --> db
     cli --> db
-    relay -- "claim unpublished rows<br/>FOR UPDATE SKIP LOCKED" --> db
+    relay -- "claim each group's earliest unpublished row<br/>by seq, FOR UPDATE SKIP LOCKED" --> db
     relay -- "publish, dedup ID = eventId" --> queue
     queue -- "after max receives" --> dlq
     queue -- "events" --> worker
@@ -50,10 +50,10 @@ flowchart LR
     dlq -. "alarm" .-> logs
 
     classDef planned stroke-dasharray: 5 5
-    class relay,queue,dlq,worker,ses,scheduler,alb,secrets,logs,cli planned
+    class queue,dlq,worker,ses,scheduler,alb,secrets,logs,cli planned
 ```
 
-The admin CLI already exists as a command in the API binary (T6); only running it as an ECS task is planned (T27). The API, MySQL and the outbox table run locally today (Docker Compose for MySQL); everything AWS-specific is provisioned in T27.
+The admin CLI already exists as a command in the API binary (T6); only running it as an ECS task is planned (T27). The API, MySQL, the outbox table and the outbox relay run locally today (Docker Compose for MySQL); the relay publishes only when `Outbox:QueueUrl` is set (it is off in Development without one, and required everywhere else), and its SQS publisher is checked against a real queue by a tagged test once one exists. Everything AWS-specific is provisioned in T27.
 
 ## From a request to an email
 
@@ -77,7 +77,7 @@ sequenceDiagram
     API->>DB: INSERT booking, history row, outbox BookingCreated
     API->>DB: COMMIT
     API-->>C: 201 Created (or 409 SlotConflict / ConfirmationRequired)
-    R->>DB: claim unpublished outbox rows
+    R->>DB: claim unpublished outbox rows (per group, in seq order)
     R->>Q: publish (group = booking ID, dedup = eventId)
     R->>DB: set published_at
     Q->>W: BookingCreated
@@ -88,7 +88,7 @@ sequenceDiagram
     W->>DB: mark notification Sent
 ```
 
-Delivery is at least once: a crash between publishing and setting `published_at` republishes the row, and the worker's `notifications` table, unique on (event, recipient), stops a second email ([ADR 0008](adr/0008-outbox-relay-in-api.md)). No network call happens inside the transaction that holds the staff lock.
+Delivery is at least once: a crash between publishing and setting `published_at` republishes the row, and the worker's `notifications` table, unique on (event, recipient), stops a second email ([ADR 0008](adr/0008-outbox-relay-in-api.md)). No network call happens inside the transaction that holds the staff lock. Each message group is published in `outbox.seq` order, and a row that fails is retried with backoff (1 s doubling to 60 s), holding back only its own group (decided 2026-11-23).
 
 ## Testing seams
 

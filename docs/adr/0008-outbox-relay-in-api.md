@@ -28,3 +28,7 @@ The API writes events to the `outbox` table in the same transaction as the chang
 - The API needs at least one running task at all times (no scale to zero).
 - Relay work shares CPU with request handling; at the expected volume this is negligible.
 - The relay is never inside a transaction that holds a staff lock (ADR 0002): it runs on its own connection after the API's transaction commits.
+
+## Amendment (2026-11-23): order per message group
+
+"Oldest first" above is refined by the outbox ordering decision (plan/tasks.md "Outbox ordering", [specs/05-data-model.md](../../specs/05-data-model.md)): rows carry a database-assigned `seq`, and the relay publishes each message group in `seq` order rather than by `created_at`, which comes from each instance's clock. A round claims at most one row per group (the group's earliest unpublished row, unless it is backing off after a failure), so instances never overtake one another within a group, and a failed row holds back only its own group, retried with backoff (1 s doubling to 60 s). The SQS client times out after 10 s per attempt with at most 2 retries, so a hung call can't hold the claimed rows' locks for long (T21).

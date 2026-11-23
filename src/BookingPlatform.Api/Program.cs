@@ -6,6 +6,7 @@ using BookingPlatform.Api.Data;
 using BookingPlatform.Api.Errors;
 using BookingPlatform.Api.Events;
 using BookingPlatform.Api.Observability;
+using BookingPlatform.Api.Outbox;
 using BookingPlatform.Api.Slots;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
@@ -103,6 +104,7 @@ builder.Services.AddSingleton<Passwords>();
 builder.Services.AddScoped<AccessResolver>();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<OutboxWriter>(); // specs/06-events.md: events go through the outbox
+if (adminArgs is null) builder.Services.AddOutboxRelay(builder.Configuration, builder.Environment); // ADR 0008; not for the admin CLI
 builder.Services.AddAuthRateLimiting(builder.Configuration);
 
 var app = builder.Build();

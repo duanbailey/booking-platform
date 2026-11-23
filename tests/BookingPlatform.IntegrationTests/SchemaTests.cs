@@ -476,6 +476,22 @@ public class SchemaTests(TestDatabase database) : IClassFixture<TestDatabase>
     }
 
     [Fact]
+    public async Task Outbox_seq_is_a_unique_auto_increment_and_the_relay_scans_have_indexes()
+    {
+        // T21 (decided 2026-11-23): seq is assigned by the database; the relay reads unpublished rows by seq and
+        // checks for an earlier unpublished row in a group.
+        Assert.Equal("auto_increment", await _sql.ScalarAsync(
+            "SELECT EXTRA FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'outbox' AND COLUMN_NAME = 'seq'"));
+        var indexes = (await _sql.RowsAsync(
+                "SELECT GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX) AS cols, MIN(NON_UNIQUE) AS non_unique FROM information_schema.STATISTICS " +
+                "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'outbox' GROUP BY INDEX_NAME"))
+            .ToDictionary(r => Convert.ToString(r["cols"])!, r => Convert.ToInt32(r["non_unique"]));
+        Assert.Equal(0, indexes["seq"]);
+        Assert.Contains("published_at,seq", indexes.Keys);
+        Assert.Contains("message_group_id,published_at,seq", indexes.Keys);
+    }
+
+    [Fact]
     public async Task Outbox_payload_must_be_valid_json()
     {
         const string insert =

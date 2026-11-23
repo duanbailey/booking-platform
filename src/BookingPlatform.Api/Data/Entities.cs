@@ -202,6 +202,26 @@ public class OutboxMessage
     public required string Payload { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? PublishedAt { get; set; }
+
+    /// <summary>
+    /// Database-assigned on insert (AUTO_INCREMENT); the relay publishes each message group in seq order
+    /// (decided 2026-11-23, specs/05-data-model.md). Never written by the application.
+    /// </summary>
+    public long Seq { get; set; }
+
+    /// <summary>Failed publish attempts so far (T21); reset never, kept for diagnosis.</summary>
+    public int Attempts { get; set; }
+
+    /// <summary>The last publish failure, truncated; null once published or if none.</summary>
+    public string? LastError { get; set; }
+
+    /// <summary>When a failed row may be tried again (backoff); null if it never failed.</summary>
+    public DateTime? NextAttemptAt { get; set; }
+}
+
+public static class OutboxMessageLimits
+{
+    public const int LastErrorLength = 1000;
 }
 
 public enum BookingStatus { Confirmed, Cancelled }

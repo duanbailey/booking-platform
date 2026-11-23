@@ -12,10 +12,12 @@ namespace BookingPlatform.IntegrationTests.Infrastructure;
 /// Hosts the real API pipeline in memory against a <see cref="TestDatabase"/>, plus
 /// the probe endpoints in <see cref="AccessProbeController"/> (test assembly only).
 /// The /v1/auth/ rate limits are high unless a test asks for low ones. With a
-/// <paramref name="time"/>, the API reads the clock from it instead of the system clock.
+/// <paramref name="time"/>, the API reads the clock from it instead of the system clock; <paramref name="configure"/>
+/// can change the environment, settings and services last.
 /// </summary>
 public sealed class ApiFactory(
-    TestDatabase database, int authPermitLimit = 10_000, int refreshPermitLimit = 10_000, TimeProvider? time = null)
+    TestDatabase database, int authPermitLimit = 10_000, int refreshPermitLimit = 10_000, TimeProvider? time = null,
+    Action<IWebHostBuilder>? configure = null)
     : WebApplicationFactory<Program>
 {
     /// <summary>Test-only request header that sets the caller's IP (the test server has none).</summary>
@@ -33,6 +35,7 @@ public sealed class ApiFactory(
             services.AddTransient<IStartupFilter, ClientIpStartupFilter>();
             if (time is not null) services.AddSingleton(time); // the last registration wins
         });
+        configure?.Invoke(builder); // last, so a test's settings and services win
     }
 
     public HttpClient ClientFor(Guid userId)

@@ -1,5 +1,6 @@
 using System.Text;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
@@ -248,7 +249,16 @@ public class BookingDbContext(DbContextOptions<BookingDbContext> options) : DbCo
             e.Property(x => x.EventType).HasMaxLength(100);
             e.Property(x => x.MessageGroupId).HasMaxLength(128);
             e.Property(x => x.Payload).HasColumnType("json");
-            e.HasIndex(x => new { x.PublishedAt, x.CreatedAt }); // the relay's "unpublished, oldest first" scan
+            // AUTO_INCREMENT is added by hand in the OutboxRelay migration (the provider only generates it for
+            // keys). EF never writes seq, so the database always assigns it.
+            e.Property(x => x.Seq).ValueGeneratedOnAdd();
+            e.Property(x => x.Seq).Metadata.SetBeforeSaveBehavior(PropertySaveBehavior.Ignore);
+            e.Property(x => x.Seq).Metadata.SetAfterSaveBehavior(PropertySaveBehavior.Ignore);
+            e.HasIndex(x => x.Seq).IsUnique();
+            e.Property(x => x.LastError).HasMaxLength(OutboxMessageLimits.LastErrorLength);
+            // The relay's scans (T21): unpublished rows in seq order, and "an earlier unpublished row in this group".
+            e.HasIndex(x => new { x.PublishedAt, x.Seq });
+            e.HasIndex(x => new { x.MessageGroupId, x.PublishedAt, x.Seq });
         });
 
         modelBuilder.Entity<Booking>(e =>
