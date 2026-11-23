@@ -102,6 +102,36 @@ public sealed class BookingScheduler(BookingDbContext db)
             .ToListAsync(ct);
     }
 
+    /// <summary>
+    /// R6, R8 (T19): the staff member's Confirmed bookings that have not started (start after now) and no longer fit
+    /// the availability <paramref name="blocksOn"/> gives for their business-local date (<see cref="AvailabilityFit"/>).
+    /// <paramref name="blocksOn"/> returns null for a date the change doesn't govern, whose bookings are skipped.
+    /// <paramref name="onlyDate"/> narrows the read to bookings on one date. Read under the staff lock.
+    /// </summary>
+    public async Task<List<Booking>> OutsideAvailabilityAsync(Guid staffId, DateTimeZone zone, DateTime nowUtc, DateOnly? onlyDate,
+        Func<DateOnly, IReadOnlyCollection<(TimeOnly Start, TimeOnly End)>?> blocksOn, CancellationToken ct)
+    {
+        var query = db.Bookings.AsNoTracking().Where(b => b.StaffId == staffId && b.Status == BookingStatus.Confirmed && b.StartUtc > nowUtc);
+        if (onlyDate is { } date)
+        {
+            // A day either side covers every UTC offset (at most ±18 h), with plain arithmetic, so no date the path
+            // accepts overflows; the exact local date is checked below.
+            var from = date > DateOnly.MinValue ? date.AddDays(-1).ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc) : DateTime.MinValue;
+            var to = date < DateOnly.MaxValue.AddDays(-1) ? date.AddDays(2).ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc) : DateTime.MaxValue;
+            query = query.Where(b => b.StartUtc >= from && b.StartUtc < to);
+        }
+
+        var outside = new List<Booking>();
+        foreach (var booking in await query.ToListAsync(ct))
+        {
+            var bookingDate = AvailabilityFit.LocalDate(zone, booking.StartUtc);
+            if (onlyDate is not null && bookingDate != onlyDate) continue;
+            if (blocksOn(bookingDate) is { } blocks && !AvailabilityFit.Fits(zone, bookingDate, blocks, booking.StartUtc, booking.EndUtc))
+                outside.Add(booking);
+        }
+        return outside;
+    }
+
     /// <summary>ADR 0004: [start - before-buffer, end + after-buffer), from the service's buffers now.</summary>
     public static UtcInterval BlockedInterval(DateTime startUtc, Service service) => new(
         startUtc.AddMinutes(-service.BufferBeforeMinutes),

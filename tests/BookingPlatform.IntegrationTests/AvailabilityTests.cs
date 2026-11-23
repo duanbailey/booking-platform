@@ -5,7 +5,7 @@ using BookingPlatform.IntegrationTests.Infrastructure;
 namespace BookingPlatform.IntegrationTests;
 
 /// <summary>
-/// T11: weekly availability and date exceptions, without the R6 check (T19). R8: an exception
+/// T11: weekly availability and date exceptions (the R6 check, T19, is in AvailabilityR6Tests). R8: an exception
 /// replaces the weekly availability for its date, either different hours or none; blocks and
 /// ranges on one day cannot overlap, and a date has either ranges or one "unavailable" row.
 /// Staff story "weekly recurring availability plus date exceptions" (first three scenarios).
@@ -134,9 +134,9 @@ public class AvailabilityTests(ApiFixture fixture) : IClassFixture<ApiFixture>
     }
 
     [Fact]
-    public async Task Confirm_is_accepted_and_ignored_until_the_R6_check_exists()
+    public async Task A_confirmation_with_nothing_affected_goes_ahead()
     {
-        // T19 adds the R6 check; until then a confirmation changes nothing and bookings stay Confirmed.
+        // The confirm pattern: when nothing needs confirming, the change is made whether or not confirm was sent (R6 tests: AvailabilityR6Tests).
         var cast = await CastAsync();
 
         await Json.ReadAsync(await PutWeekly(cast.OwnerId, cast.StaffId,
@@ -381,7 +381,7 @@ public class AvailabilityTests(ApiFixture fixture) : IClassFixture<ApiFixture>
     }
 
     [Fact]
-    public async Task Delete_accepts_and_ignores_a_confirmation_until_the_R6_check_exists()
+    public async Task Delete_with_a_confirmation_and_nothing_affected_goes_ahead()
     {
         var cast = await CastAsync();
         await Json.ReadAsync(await PutException(cast.OwnerId, cast.StaffId, "2026-12-24", """{"unavailable":true}"""), HttpStatusCode.OK);

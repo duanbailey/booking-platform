@@ -77,10 +77,10 @@ public static class SlotGenerator
             for (var date = plan.From; date <= plan.To; date = date.AddDays(1))
             {
                 var localDate = LocalDate.FromDateOnly(date);
-                foreach (var (blockStart, blockEnd) in BlocksOn(date, weekly, exceptions))
+                foreach (var (blockStart, blockEnd) in AvailabilityFit.BlocksOn(date, weekly, exceptions))
                 {
                     var endLocal = localDate + LocalTime.FromTimeOnly(blockEnd);
-                    var endInstant = ResolveBlockEnd(zone.MapLocal(endLocal));
+                    var endInstant = AvailabilityFit.ResolveBlockEnd(zone.MapLocal(endLocal));
                     for (var local = localDate + LocalTime.FromTimeOnly(blockStart); local < endLocal; local = local.PlusMinutes(settings.SlotStepMinutes))
                     {
                         var mapping = zone.MapLocal(local);
@@ -126,21 +126,6 @@ public static class SlotGenerator
         var earliest = ignoreMinimumNotice ? now : now + Duration.FromMinutes(settings.MinNoticeMinutes);
         return (earliest, now + Duration.FromDays(settings.MaxAdvanceDays)); // N × 24 h of elapsed time
     }
-
-    private static IEnumerable<(TimeOnly Start, TimeOnly End)> BlocksOn(
-        DateOnly date, ILookup<DayOfWeek, AvailabilityRule> weekly, ILookup<DateOnly, AvailabilityException> exceptions)
-    {
-        var dateExceptions = exceptions[date].ToList();
-        if (dateExceptions.Count == 0) return weekly[date.DayOfWeek].Select(r => (r.StartLocal, r.EndLocal));
-        if (dateExceptions.Any(e => e.StartLocal is null || e.EndLocal is null)) return []; // unavailable all day
-        return dateExceptions.Select(e => (e.StartLocal!.Value, e.EndLocal!.Value));
-    }
-
-    private static Instant ResolveBlockEnd(ZoneLocalMapping mapping) => mapping.Count switch
-    {
-        0 => mapping.LateInterval.Start, // inside a gap: the instant the gap ends
-        _ => mapping.Last().ToInstant(),  // ambiguous: the later occurrence
-    };
 
     private static DateOnly Max(DateOnly a, DateOnly b) => a > b ? a : b;
 

@@ -1019,7 +1019,11 @@ paths:
         Replaces the whole week. Bookings that have not started and would fall
         outside the new availability (on dates without a date exception) use
         the confirm pattern; on confirmation they are cancelled with reason
-        `AvailabilityChanged`.
+        `AvailabilityChanged`. A booking is outside when its appointment no
+        longer lies inside a single block of the business-local date of its
+        start (buffers and slot steps don't count; touching blocks stay
+        separate, R8), with block edges resolved as in slot generation (R2)
+        (decided 2026-11-23).
       parameters:
         - $ref: '#/components/parameters/StaffId'
       requestBody:
@@ -1091,7 +1095,9 @@ paths:
         Replaces that date's availability entirely: either different hours or
         none. Bookings that have not started and would fall outside it use the
         confirm pattern; on confirmation they are cancelled with reason
-        `AvailabilityChanged`.
+        `AvailabilityChanged`. Only bookings on that date (the business-local
+        date of their start) are checked; "outside" is as for weekly
+        availability.
       parameters:
         - $ref: '#/components/parameters/StaffId'
         - $ref: '#/components/parameters/LocalDate'
@@ -1137,7 +1143,10 @@ paths:
         bookings outside availability, so this uses the confirm pattern too.
         404 if the date has no exception (decided 2026-11-19).
         Because DELETE has no body, the confirmation is sent as the
-        `confirmAffectedBookingIds` query parameter.
+        `confirmAffectedBookingIds` query parameter, once (spaces around an ID
+        are ignored); a malformed or
+        repeated ID, an empty value or a repeated parameter is 400 naming it
+        (decided 2026-11-23).
       parameters:
         - $ref: '#/components/parameters/StaffId'
         - $ref: '#/components/parameters/LocalDate'
@@ -1152,6 +1161,7 @@ paths:
             items: { $ref: '#/components/schemas/Id' }
       responses:
         '204': { description: Date exception removed. }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }

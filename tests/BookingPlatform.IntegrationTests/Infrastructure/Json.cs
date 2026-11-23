@@ -12,6 +12,9 @@ public static class Json
     public static Task<HttpResponseMessage> PostJsonAsync(this HttpClient client, string path, object body) =>
         client.PostAsJsonAsync(path, body);
 
+    public static Task<HttpResponseMessage> PutJsonAsync(this HttpClient client, string path, object body) =>
+        client.PutAsJsonAsync(path, body);
+
     public static async Task<JsonElement> ReadAsync(HttpResponseMessage response, HttpStatusCode expected)
     {
         var text = await response.Content.ReadAsStringAsync();
