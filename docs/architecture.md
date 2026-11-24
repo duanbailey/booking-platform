@@ -1,6 +1,6 @@
 # Architecture
 
-How the booking platform's parts fit together on AWS. The sources are [specs/08-architecture.md](../specs/08-architecture.md), [specs/06-events.md](../specs/06-events.md), [specs/07-nfr.md](../specs/07-nfr.md) and ADRs [0002](adr/0002-booking-concurrency-row-lock.md), [0007](adr/0007-aws-testing-with-fakes.md), [0008](adr/0008-outbox-relay-in-api.md) and [0009](adr/0009-terraform-for-infrastructure.md). Dashed boxes are planned and not built yet; the task that builds each is in [plan/tasks.md](../plan/tasks.md). Updated 2026-11-20 (T1-T16 built).
+How the booking platform's parts fit together on AWS. The sources are [specs/08-architecture.md](../specs/08-architecture.md), [specs/06-events.md](../specs/06-events.md), [specs/07-nfr.md](../specs/07-nfr.md) and ADRs [0002](adr/0002-booking-concurrency-row-lock.md), [0007](adr/0007-aws-testing-with-fakes.md), [0008](adr/0008-outbox-relay-in-api.md) and [0009](adr/0009-terraform-for-infrastructure.md). Dashed boxes are planned and not built yet; the task that builds each is in [plan/tasks.md](../plan/tasks.md). The AWS services themselves (queue, SES, Scheduler and the rest) are provisioned in T27; the code that talks to them sits behind interfaces with fakes (ADR 0007). Updated 2026-11-24 (T1-T25 built).
 
 ## Components
 
@@ -24,7 +24,7 @@ flowchart LR
         queue[["SQS FIFO queue<br/>message group = booking ID<br/>(user ID for account events)"]]
         dlq[["FIFO dead-letter queue"]]
 
-        worker["Node worker<br/>Lambda, TypeScript<br/>(T23-T26)"]
+        worker["Node worker<br/>Lambda, TypeScript<br/>(T23-T25 built; T26 adds account emails)"]
         ses["SES<br/>emails"]
         scheduler["EventBridge Scheduler<br/>24h and 1h reminders (R9)"]
 
@@ -42,7 +42,7 @@ flowchart LR
     worker -- "idempotency, contact details,<br/>invite and reset token hashes" --> db
     worker -- "send" --> ses
     worker -- "create, move, delete<br/>reminder-{bookingId}-24h / -1h" --> scheduler
-    scheduler -. "ReminderDue<br/>(delivery path decided in T25)" .-> worker
+    scheduler -- "ReminderDue at the due time<br/>group = booking ID (T25)" --> queue
     api -. "reads" .-> secrets
     worker -. "reads" .-> secrets
     api -. "logs" .-> logs
@@ -50,7 +50,7 @@ flowchart LR
     dlq -. "alarm" .-> logs
 
     classDef planned stroke-dasharray: 5 5
-    class queue,dlq,worker,ses,scheduler,alb,secrets,logs,cli planned
+    class queue,dlq,ses,scheduler,alb,secrets,logs,cli planned
 ```
 
 The admin CLI already exists as a command in the API binary (T6); only running it as an ECS task is planned (T27). The API, MySQL, the outbox table and the outbox relay run locally today (Docker Compose for MySQL); the relay publishes only when `Outbox:QueueUrl` is set (it is off in Development without one, and required everywhere else), and its SQS publisher is checked against a real queue by a tagged test once one exists. Everything AWS-specific is provisioned in T27.
@@ -84,8 +84,10 @@ sequenceDiagram
     W->>DB: insert Pending notification (skip if already Sent)
     W->>DB: look up the customer's email
     W->>SES: confirmation email (both time zones, R2)
-    W->>S: schedule 24h and 1h reminders, skipping past times (R9)
     W->>DB: mark notification Sent
+    W->>S: schedule 24h and 1h reminders, skipping past times (R9)
+    S->>Q: ReminderDue, 24h and 1h before the start
+    Q->>W: ReminderDue: email the customer unless stale (cancelled, moved or started)
 ```
 
 Delivery is at least once: a crash between publishing and setting `published_at` republishes the row, and the worker's `notifications` table, unique on (event, recipient), stops a second email ([ADR 0008](adr/0008-outbox-relay-in-api.md)). No network call happens inside the transaction that holds the staff lock. Each message group is published in `outbox.seq` order, and a row that fails is retried with backoff (1 s doubling to 60 s), holding back only its own group (decided 2026-11-23).

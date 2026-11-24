@@ -50,13 +50,26 @@ describe('SES email sender', () => {
 });
 
 describe('config', () => {
-  const complete = { DB_HOST: 'db', DB_PORT: '3306', DB_USER: 'worker', DB_PASSWORD: 'pw', DB_NAME: 'booking', EMAIL_FROM: 'bookings@example.test' };
+  const complete = {
+    DB_HOST: 'db', DB_PORT: '3306', DB_USER: 'worker', DB_PASSWORD: 'pw', DB_NAME: 'booking', EMAIL_FROM: 'bookings@example.test',
+    REMINDER_GROUP: 'booking-reminders', REMINDER_TARGET_ARN: 'arn:aws:sqs:eu-west-2:123456789012:events.fifo',
+    REMINDER_ROLE_ARN: 'arn:aws:iam::123456789012:role/scheduler-send',
+  };
 
-  it('reads the database settings and From address from the environment', () => {
+  it('reads the database, From address and reminder settings from the environment (T25)', () => {
     expect(loadConfig(complete)).toEqual({
       database: { host: 'db', port: 3306, user: 'worker', password: 'pw', database: 'booking' },
       emailFrom: 'bookings@example.test',
+      reminders: {
+        groupName: 'booking-reminders',
+        targetArn: 'arn:aws:sqs:eu-west-2:123456789012:events.fifo',
+        roleArn: 'arn:aws:iam::123456789012:role/scheduler-send',
+      },
     });
+  });
+
+  it('requires the reminder settings (T25)', () => {
+    expect(() => loadConfig({ ...complete, REMINDER_GROUP: undefined, REMINDER_ROLE_ARN: '' })).toThrow('REMINDER_GROUP, REMINDER_ROLE_ARN');
   });
 
   it('names every missing setting, but never a value', () => {

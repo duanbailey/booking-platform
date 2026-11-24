@@ -2,9 +2,13 @@
 export interface WorkerConfig {
   database: { host: string; port: number; user: string; password: string; database: string };
   emailFrom: string;
+  /** T25: where reminder schedules live and what they send to (the SQS FIFO queue), and the role Scheduler uses. */
+  reminders: { groupName: string; targetArn: string; roleArn: string };
 }
 
-const REQUIRED = ['DB_HOST', 'DB_PORT', 'DB_USER', 'DB_PASSWORD', 'DB_NAME', 'EMAIL_FROM'] as const;
+const REQUIRED = [
+  'DB_HOST', 'DB_PORT', 'DB_USER', 'DB_PASSWORD', 'DB_NAME', 'EMAIL_FROM', 'REMINDER_GROUP', 'REMINDER_TARGET_ARN', 'REMINDER_ROLE_ARN',
+] as const;
 
 /** Throws naming every missing or malformed setting, never a value. */
 export function loadConfig(env: Record<string, string | undefined> = process.env): WorkerConfig {
@@ -15,5 +19,6 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   return {
     database: { host: env.DB_HOST!, port, user: env.DB_USER!, password: env.DB_PASSWORD!, database: env.DB_NAME! },
     emailFrom: env.EMAIL_FROM!,
+    reminders: { groupName: env.REMINDER_GROUP!, targetArn: env.REMINDER_TARGET_ARN!, roleArn: env.REMINDER_ROLE_ARN! },
   };
 }

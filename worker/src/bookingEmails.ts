@@ -7,11 +7,14 @@
 import type { Contact, ContactDirectory } from './contacts';
 import { MissingRecordError, type BookingDirectory } from './directory';
 import type { EventHandler } from './pipeline';
+import type { Reminders } from './reminders';
 import { formatRange, formatStart, whenLines } from './time';
 
 export interface BookingEmailDeps {
   directory: Pick<BookingDirectory, 'business' | 'serviceName' | 'staffUserId' | 'bookingServiceId'>;
   contacts: Pick<ContactDirectory, 'find'>;
+  /** T25: reminder changes, made after the emails (decided 2026-11-24). */
+  reminders: Pick<Reminders, 'schedule' | 'move' | 'delete'>;
 }
 
 interface Slot {
@@ -38,7 +41,9 @@ export function bookingHandlers(deps: BookingEmailDeps): Map<string, EventHandle
   }
 
   const bookingCreated: EventHandler = async ({ event, sendEmail }) => {
-    const data = event.data as { businessId: string; businessTimeZone: string; serviceId: string; customerId: string; slot: Slot };
+    const data = event.data as {
+      bookingId: string; businessId: string; businessTimeZone: string; serviceId: string; customerId: string; slot: Slot;
+    };
     const zone = data.businessTimeZone;
     const business = await directory.business(data.businessId);
     const service = await directory.serviceName(data.serviceId);
@@ -46,18 +51,20 @@ export function bookingHandlers(deps: BookingEmailDeps): Map<string, EventHandle
 
     await sendEmail(data.customerId, 'Confirmation', (to) => ({
       subject: `Booking confirmed: ${service} at ${business.name} on ${formatStart(data.slot.startUtc, zone)}`,
-      text: body(to, 'Your booking is confirmed.', [
+      text: emailBody(to, 'Your booking is confirmed.', [
         `Service: ${service}`,
         `Business: ${business.name}`,
         `With: ${staff.name}`,
         ...whenLines(data.slot, zone, to.timeZone),
       ]),
     }));
+    await deps.reminders.schedule(event, data.bookingId, data.slot.startUtc);
   };
 
   const bookingRescheduled: EventHandler = async ({ event, sendEmail }) => {
     const data = event.data as {
-      businessId: string; businessTimeZone: string; serviceId: string; customerId: string; oldSlot: Slot; newSlot: Slot;
+      bookingId: string; businessId: string; businessTimeZone: string; serviceId: string; customerId: string;
+      oldSlot: Slot; newSlot: Slot;
     };
     const zone = data.businessTimeZone;
     const business = await directory.business(data.businessId);
@@ -69,7 +76,7 @@ export function bookingHandlers(deps: BookingEmailDeps): Map<string, EventHandle
 
     const compose = (intro: string, forBusiness: boolean) => (to: Contact) => ({
       subject: `Booking rescheduled: ${service} at ${business.name}, now on ${formatStart(data.newSlot.startUtc, zone)}`,
-      text: body(to, intro, [
+      text: emailBody(to, intro, [
         `Service: ${service}`,
         `Business: ${business.name}`,
         ...(forBusiness ? [customerLine(customer)] : []),
@@ -85,17 +92,19 @@ export function bookingHandlers(deps: BookingEmailDeps): Map<string, EventHandle
     });
 
     await sendEmail(data.customerId, 'Rescheduled', compose('Your booking has been moved.', false));
-    if (!staffChanged) {
+    if (staffChanged) {
+      await sendEmail(newStaff.userId, 'Rescheduled', compose(`A booking has been moved to you from ${oldStaff.name}.`, true));
+      await sendEmail(oldStaff.userId, 'Rescheduled', compose(`This booking has been moved to ${newStaff.name}.`, true));
+    } else {
       await sendEmail(newStaff.userId, 'Rescheduled', compose('A booking with you has been moved.', true));
-      return;
     }
-    await sendEmail(newStaff.userId, 'Rescheduled', compose(`A booking has been moved to you from ${oldStaff.name}.`, true));
-    await sendEmail(oldStaff.userId, 'Rescheduled', compose(`This booking has been moved to ${newStaff.name}.`, true));
+    await deps.reminders.move(event, data.bookingId, data.newSlot.startUtc);
   };
 
   const bookingCancelled: EventHandler = async ({ event, sendEmail }) => {
     const data = event.data as {
-      businessId: string; businessTimeZone: string; serviceId: string; customerId: string; slot: Slot; reason: CancellationReason;
+      bookingId: string; businessId: string; businessTimeZone: string; serviceId: string; customerId: string; slot: Slot;
+      reason: CancellationReason;
     };
     const zone = data.businessTimeZone;
     const business = await directory.business(data.businessId);
@@ -106,7 +115,7 @@ export function bookingHandlers(deps: BookingEmailDeps): Map<string, EventHandle
 
     const compose = (intro: string, forBusiness: boolean) => (to: Contact) => ({
       subject: `Booking cancelled: ${service} at ${business.name} on ${formatStart(data.slot.startUtc, zone)}`,
-      text: body(to, intro, [
+      text: emailBody(to, intro, [
         `Service: ${service}`,
         `Business: ${business.name}`,
         ...(forBusiness ? [customerLine(customer)] : []),
@@ -118,6 +127,7 @@ export function bookingHandlers(deps: BookingEmailDeps): Map<string, EventHandle
     // R6: cancellation notifications go to all affected users, including a removed staff member (StaffRemoved).
     await sendEmail(data.customerId, 'Cancelled', compose(lines.toCustomer, false));
     await sendEmail(staff.userId, 'Cancelled', compose(lines.toStaff, true));
+    await deps.reminders.delete(data.bookingId);
   };
 
   const bookingLocalTimeChanged: EventHandler = async ({ event, sendEmail }) => {
@@ -133,7 +143,7 @@ export function bookingHandlers(deps: BookingEmailDeps): Map<string, EventHandle
       const [when, ...rest] = whenLines(data.slot, data.newTimeZone, to.timeZone);
       return {
         subject: `New local time for your booking: ${service} at ${business.name}`,
-        text: body(to,
+        text: emailBody(to,
           `${business.name} has changed its time zone from ${data.oldTimeZone} to ${data.newTimeZone}.\n` +
           'Your booking has not moved, but its local time at the business has changed.', [
             `Service: ${service}`,
@@ -162,7 +172,7 @@ export function bookingHandlers(deps: BookingEmailDeps): Map<string, EventHandle
 
     const compose = (to: Contact) => ({
       subject: `${customer.name} holds two bookings at ${business.name}`,
-      text: body(to,
+      text: emailBody(to,
         `${customer.name} has made a new booking at ${business.name} while holding a booking that starts within the ` +
         'cancellation window. The original booking still stands, so cancel it if the customer no longer needs it.', [
           `Business: ${business.name}`,
@@ -222,6 +232,7 @@ function customerLine(customer: Contact): string {
   return `Customer: ${customer.name} <${customer.email}>`;
 }
 
-function body(to: Contact, intro: string, lines: string[]): string {
+/** Greeting, intro, then the detail lines: the plain-text layout of every booking email (T24, T25). */
+export function emailBody(to: Contact, intro: string, lines: string[]): string {
   return [`Hello ${to.name},`, '', intro, '', ...lines, ''].join('\n');
 }

@@ -1,18 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import type { Pool } from 'mysql2/promise';
-import { bookingHandlers } from './bookingEmails';
-import { ContactDirectory } from './contacts';
-import { BookingDirectory, MissingRecordError } from './directory';
-import { createEventParser } from './events';
-import { NotificationStore } from './notifications';
-import { processMessage, type PipelineDeps } from './pipeline';
-import { CapturingLogger, FakeEmailSender } from './testing/fakes';
-import { insertBooking, insertBusiness, insertService, insertStaff, insertUser, notificationsFor, testPool } from './testing/mysql';
+import { MissingRecordError } from './directory';
+import { processMessage } from './pipeline';
+import {
+  bookingWorld, cancelled, created, envelope, rescheduled, NEW_END, NEW_START, SLOT_END, SLOT_START, type BookingWorld,
+} from './testing/bookingWorld';
+import { insertBooking, notificationsFor, testPool } from './testing/mysql';
 
 // T24: booking emails. Acceptance: worker handling table in specs/06-events.md; R2, R4, R6. Decisions 2026-11-24
 // (plan/tasks.md, T24): plain text; times in the business's zone, plus the recipient's own zone when it differs;
 // staff- and owner-facing emails name the customer and give their email; cancellation wording by reason and recipient;
-// one email per event and recipient, the customer first.
+// one email per event and recipient, the customer first. Fixtures in testing/bookingWorld.ts.
 describe('booking emails', () => {
   let pool: Pool;
   beforeAll(() => {
@@ -22,90 +20,8 @@ describe('booking emails', () => {
     await pool.end();
   });
 
-  const SLOT_START = '2026-11-23T19:00:00Z'; // 14:00 in New York, 19:00 in London
-  const SLOT_END = '2026-11-23T20:00:00Z';
-  const NEW_START = '2026-11-24T15:00:00Z'; // 10:00 in New York
-  const NEW_END = '2026-11-24T16:00:00Z';
-
-  async function world() {
-    const tag = randomUUID().slice(0, 8);
-    const ownerUser = await insertUser(pool, { name: 'Olive Owner', email: `olive-${tag}@example.test`, timeZone: 'America/New_York' });
-    const samUser = await insertUser(pool, { name: 'Sam Staff', email: `sam-${tag}@example.test`, timeZone: 'America/New_York' });
-    const kimUser = await insertUser(pool, { name: 'Kim Staff', email: `kim-${tag}@example.test`, timeZone: 'America/Chicago' });
-    const customer = await insertUser(pool, { name: 'Ann Customer', email: `ann-${tag}@example.test`, timeZone: 'Europe/London' });
-    const businessId = await insertBusiness(pool, { ownerUserId: ownerUser, name: 'Cut & Dry', timeZone: 'America/New_York' });
-    const serviceId = await insertService(pool, { businessId, name: 'Haircut' });
-    const beardId = await insertService(pool, { businessId, name: 'Beard trim' });
-    const sam = await insertStaff(pool, { businessId, userId: samUser });
-    const kim = await insertStaff(pool, { businessId, userId: kimUser });
-    const ownerStaff = await insertStaff(pool, { businessId, userId: ownerUser });
-    const bookingId = await insertBooking(pool, { staffId: sam, serviceId, customerId: customer, startUtc: SLOT_START, endUtc: SLOT_END });
-
-    const email = new FakeEmailSender();
-    const contacts = new ContactDirectory(pool);
-    const deps: PipelineDeps = {
-      parse: createEventParser(),
-      handlers: bookingHandlers({ directory: new BookingDirectory(pool), contacts }),
-      notifications: new NotificationStore(pool),
-      contacts,
-      email,
-      log: new CapturingLogger(),
-    };
-    const addressOf = async (userId: string) => (await contacts.find(userId))!.email;
-    const to = async (userId: string) => {
-      const address = await addressOf(userId);
-      return email.sent.filter((e) => e.to === address);
-    };
-    return { ownerUser, samUser, kimUser, customer, businessId, serviceId, beardId, sam, kim, ownerStaff, bookingId, email, deps, addressOf, to, tag };
-  }
-
-  type World = Awaited<ReturnType<typeof world>>;
-
-  function envelope(eventType: string, data: Record<string, unknown>) {
-    return {
-      eventId: randomUUID(),
-      eventType,
-      schemaVersion: 1,
-      occurredAt: '2026-11-20T10:00:00.000000Z',
-      correlationId: 'corr-t24',
-      data,
-    };
-  }
-
-  const created = (w: World, overrides: { customerId?: string; staffId?: string } = {}) => envelope('BookingCreated', {
-    bookingId: w.bookingId,
-    bookingVersion: 1,
-    businessId: w.businessId,
-    businessTimeZone: 'America/New_York',
-    serviceId: w.serviceId,
-    customerId: overrides.customerId ?? w.customer,
-    slot: { staffId: overrides.staffId ?? w.sam, startUtc: SLOT_START, endUtc: SLOT_END },
-    createdBy: { userId: w.customer, role: 'Customer' },
-  });
-
-  const rescheduled = (w: World, newStaffId: string) => envelope('BookingRescheduled', {
-    bookingId: w.bookingId,
-    bookingVersion: 2,
-    businessId: w.businessId,
-    businessTimeZone: 'America/New_York',
-    serviceId: w.serviceId,
-    customerId: w.customer,
-    oldSlot: { staffId: w.sam, startUtc: SLOT_START, endUtc: SLOT_END },
-    newSlot: { staffId: newStaffId, startUtc: NEW_START, endUtc: NEW_END },
-    rescheduledBy: { userId: w.ownerUser, role: 'Owner' },
-  });
-
-  const cancelled = (w: World, reason: string, overrides: { customerId?: string; staffId?: string } = {}) => envelope('BookingCancelled', {
-    bookingId: w.bookingId,
-    bookingVersion: 2,
-    businessId: w.businessId,
-    businessTimeZone: 'America/New_York',
-    serviceId: w.serviceId,
-    customerId: overrides.customerId ?? w.customer,
-    slot: { staffId: overrides.staffId ?? w.sam, startUtc: SLOT_START, endUtc: SLOT_END },
-    cancelledBy: { userId: w.customer, role: 'Customer' },
-    reason,
-  });
+  const world = () => bookingWorld(pool);
+  type World = BookingWorld;
 
   const run = (w: World, event: object) => processMessage(JSON.stringify(event), w.deps);
 
