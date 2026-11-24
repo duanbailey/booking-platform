@@ -11,6 +11,9 @@ public sealed class OutboxOptions
     /// <summary>How long the relay waits after a round that published nothing (ADR 0008: 1-2 s).</summary>
     public int PollIntervalMilliseconds { get; set; } = 1000;
 
+    /// <summary>The least time between two outbox-age metric lines (T27a, <see cref="OutboxAgeMetric"/>).</summary>
+    public int MetricIntervalSeconds { get; set; } = 60;
+
     /// <summary>Rows per round: SQS's SendMessageBatch maximum.</summary>
     public const int BatchSize = 10;
 

@@ -81,6 +81,7 @@ security:
   - bearerAuth: []
 
 tags:
+  - name: Operations
   - name: Auth
   - name: Admin
   - name: Businesses
@@ -91,6 +92,28 @@ tags:
   - name: Bookings
 
 paths:
+  # ---------------------------------------------------------------- Operations
+  /health:
+    get:
+      tags: [Operations]
+      operationId: getHealth
+      summary: Health check for the load balancer
+      description: |
+        Anonymous, outside /v1, and not rate limited. Shallow: it does not touch the
+        database, so a database outage does not make the load balancer replace every
+        task (decided 2026-11-24, T27a).
+      security: []
+      responses:
+        '200':
+          description: The API process is up.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [status]
+                properties:
+                  status: { type: string, enum: [ok] }
   # ---------------------------------------------------------------- Auth
   /v1/auth/register:
     post:

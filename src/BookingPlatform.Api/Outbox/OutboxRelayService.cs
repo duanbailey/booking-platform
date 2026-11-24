@@ -6,9 +6,10 @@ namespace BookingPlatform.Api.Outbox;
 /// <summary>
 /// Runs <see cref="OutboxRelay"/> in the API (ADR 0008). A round that published anything is followed at once by
 /// another; otherwise the relay waits the poll interval (1 s by default). On shutdown it stops claiming and lets
-/// the round in flight finish, so a sent batch is marked published (decided 2026-11-23).
+/// the round in flight finish, so a sent batch is marked published (decided 2026-11-23). After each successful round it
+/// reports the outbox-age metric (T27a).
 /// </summary>
-public sealed class OutboxRelayService(OutboxRelay relay, IOptions<OutboxOptions> options, TimeProvider time, ILogger<OutboxRelayService> logger)
+public sealed class OutboxRelayService(OutboxRelay relay, OutboxAgeMetric metric, IOptions<OutboxOptions> options, TimeProvider time, ILogger<OutboxRelayService> logger)
     : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -21,6 +22,7 @@ public sealed class OutboxRelayService(OutboxRelay relay, IOptions<OutboxOptions
             try
             {
                 published = await relay.RunRoundAsync(CancellationToken.None); // never cut short by shutdown
+                await metric.ReportIfDueAsync(stoppingToken); // only after a successful round (T27a)
             }
             catch (Exception e)
             {
@@ -77,6 +79,8 @@ public static class OutboxRelayRegistration
         services.AddSingleton<IAmazonSQS>(_ => new AmazonSQSClient(SqsConfig())); // default credential and region chain
         services.AddSingleton<IMessagePublisher, SqsMessagePublisher>();
         services.AddSingleton<OutboxRelay>();
+        services.AddSingleton(provider => new OutboxAgeMetric(provider.GetRequiredService<IServiceScopeFactory>(),
+            provider.GetRequiredService<TimeProvider>(), provider.GetRequiredService<IOptions<OutboxOptions>>(), Console.Out));
         services.AddHostedService<OutboxRelayService>();
         return services;
     }

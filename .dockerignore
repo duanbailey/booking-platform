@@ -1,0 +1,9 @@
+# Keep the Docker build context small and free of local build output and secrets (T27a).
+**/bin/
+**/obj/
+**/node_modules/
+**/dist/
+.git/
+.vscode/
+**/*.user
+**/.env

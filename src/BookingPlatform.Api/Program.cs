@@ -17,11 +17,13 @@ using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
 
-// `admin ...` runs the operator script (AdminCli) instead of the web server. Its arguments
-// are not passed to the host, so they can't be read as configuration.
+// `admin ...` runs the operator script (AdminCli) and `db ...` the deployment's database setup (DbMigrateCli,
+// T27a) instead of the web server. Their arguments are not passed to the host, so they can't be read as configuration.
 var adminArgs = args is ["admin", .. var rest] ? rest : null;
+var dbArgs = args is ["db", .. var dbRest] ? dbRest : null;
+var cliMode = adminArgs is not null || dbArgs is not null;
 
-var builder = WebApplication.CreateBuilder(adminArgs is null ? args : []);
+var builder = WebApplication.CreateBuilder(cliMode ? [] : args);
 
 // Structured logging: JSON lines on stdout, collected by CloudWatch (specs/07-nfr.md).
 builder.Logging.ClearProviders();
@@ -31,7 +33,7 @@ builder.Logging.AddJsonConsole(o =>
     o.UseUtcTimestamp = true;
     o.TimestampFormat = "yyyy-MM-ddTHH:mm:ss.fffZ";
 });
-if (adminArgs is not null)
+if (cliMode)
 {
     // The script's own output owns stdout; only warnings and errors are logged, to stderr.
     builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
@@ -59,9 +61,9 @@ builder.Services.AddControllers()
     });
 builder.Services.AddOpenApi();
 
+// ConnectionStrings:BookingDb, with Database:User and Database:Password overriding its credentials (T27a).
 builder.Services.AddDbContext<BookingDbContext>((services, options) =>
-    options.UseMySQL(services.GetRequiredService<IConfiguration>().GetConnectionString("BookingDb")
-        ?? throw new InvalidOperationException("Connection string 'BookingDb' is not configured.")));
+    options.UseMySQL(DatabaseConnection.FromConfiguration(services.GetRequiredService<IConfiguration>())));
 
 builder.Services.AddSingleton(TimeProvider.System);
 
@@ -104,7 +106,7 @@ builder.Services.AddSingleton<Passwords>();
 builder.Services.AddScoped<AccessResolver>();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<OutboxWriter>(); // specs/06-events.md: events go through the outbox
-if (adminArgs is null) builder.Services.AddOutboxRelay(builder.Configuration, builder.Environment); // ADR 0008; not for the admin CLI
+if (!cliMode) builder.Services.AddOutboxRelay(builder.Configuration, builder.Environment); // ADR 0008; not for the CLI commands
 builder.Services.AddAuthRateLimiting(builder.Configuration);
 
 var app = builder.Build();
@@ -113,13 +115,16 @@ if (adminArgs is not null)
 {
     return await AdminCli.RunAsync(adminArgs, app.Services, Console.Out, Console.Error);
 }
-
-// Client IP and scheme from the load balancer. Only loopback proxies are trusted by
-// default; T27 adds the load balancer's network, so clients can't spoof their IP.
-app.UseForwardedHeaders(new ForwardedHeadersOptions
+if (dbArgs is not null)
 {
-    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto,
-});
+    return await DbMigrateCli.RunAsync(dbArgs, app.Configuration,
+        app.Services.GetRequiredService<ILoggerFactory>().CreateLogger(typeof(DbMigrateCli).FullName!), Console.Out, Console.Error);
+}
+
+// Client IP and scheme from the proxies in front (T27a): loopback is always trusted, plus the networks in
+// ForwardedHeaders:KnownNetworks (behind CloudFront and the internal load balancer, the VPC), across up to
+// ForwardedHeaders:ForwardLimit hops (2 there). An untrusted hop ends the chain, so clients can't spoof their IP.
+app.UseForwardedHeaders(TrustedProxies.Options(app.Configuration));
 app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseMiddleware<ErrorHandlingMiddleware>();
 // Any error status with an empty body (authentication challenges, unknown routes, wrong
@@ -133,11 +138,15 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi().AllowAnonymous();
 }
 
-app.UseHttpsRedirection();
+// Off behind CloudFront (Https:Redirect = false), which enforces HTTPS itself: it reaches the load balancer over
+// HTTP inside AWS, so the API sees X-Forwarded-Proto: http and would redirect forever (T27a).
+if (app.Configuration.GetValue("Https:Redirect", true)) app.UseHttpsRedirection();
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
+// The load balancer's health check (T27a): shallow, so a database outage doesn't make it replace every task.
+app.MapGet("/health", () => Results.Json(new { status = "ok" })).AllowAnonymous();
 
 app.Run();
 return 0;

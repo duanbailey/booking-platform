@@ -11,8 +11,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace BookingPlatform.Api.Data.Migrations
 {
     [DbContext(typeof(BookingDbContext))]
-    [Migration("20261123205611_OutboxRelay")]
-    partial class OutboxRelay
+    [Migration("20261124200105_InitialSchema")]
+    partial class InitialSchema
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
