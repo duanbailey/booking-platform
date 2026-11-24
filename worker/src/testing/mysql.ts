@@ -71,3 +71,49 @@ export async function notificationsFor(pool: Pool, eventId: string): Promise<Row
     'SELECT * FROM notifications WHERE event_id = ? ORDER BY recipient_user_id', [eventId]);
   return rows;
 }
+
+/** Inserts a business owned by an existing user (T24 fixtures). */
+export async function insertBusiness(pool: Pool, fields: { ownerUserId: string; name?: string; timeZone?: string }): Promise<string> {
+  const id = randomUUID();
+  await pool.query(
+    'INSERT INTO businesses (id, name, owner_user_id, time_zone, created_at) VALUES (?, ?, ?, ?, UTC_TIMESTAMP(6))',
+    [id, fields.name ?? 'Cut & Dry', fields.ownerUserId, fields.timeZone ?? 'America/New_York'],
+  );
+  return id;
+}
+
+export async function insertService(pool: Pool, fields: { businessId: string; name?: string }): Promise<string> {
+  const id = randomUUID();
+  await pool.query(
+    `INSERT INTO services (id, business_id, name, duration_minutes, buffer_before_minutes, buffer_after_minutes, price, created_at)
+     VALUES (?, ?, ?, 60, 0, 0, 25.00, UTC_TIMESTAMP(6))`,
+    [id, fields.businessId, fields.name ?? 'Haircut'],
+  );
+  return id;
+}
+
+/** Inserts a staff row; removed staff keep their row (specs/05-data-model.md). */
+export async function insertStaff(pool: Pool, fields: { businessId: string; userId: string; removed?: boolean }): Promise<string> {
+  const id = randomUUID();
+  await pool.query(
+    'INSERT INTO staff (id, user_id, business_id, removed_at, created_at) VALUES (?, ?, ?, ?, UTC_TIMESTAMP(6))',
+    [id, fields.userId, fields.businessId, fields.removed ? new Date() : null],
+  );
+  return id;
+}
+
+export async function insertBooking(
+  pool: Pool,
+  fields: { staffId: string; serviceId: string; customerId: string; startUtc: string; endUtc: string },
+): Promise<string> {
+  const id = randomUUID();
+  const start = new Date(fields.startUtc);
+  const end = new Date(fields.endUtc);
+  await pool.query(
+    `INSERT INTO bookings (id, staff_id, service_id, customer_id, start_utc, end_utc, blocked_start_utc, blocked_end_utc,
+       status, created_at, version)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Confirmed', UTC_TIMESTAMP(6), 1)`,
+    [id, fields.staffId, fields.serviceId, fields.customerId, start, end, start, end],
+  );
+  return id;
+}

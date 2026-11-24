@@ -8,10 +8,8 @@ import { createEventParser } from './events';
 import { createSqsHandler } from './handler';
 import { jsonLogger } from './log';
 import { NotificationStore } from './notifications';
-import type { HandlerRegistry, PipelineDeps } from './pipeline';
-
-/** Event handlers; T24 (booking emails), T25 (reminders) and T26 (invite and account emails) add them. */
-const handlers: HandlerRegistry = new Map();
+import type { PipelineDeps } from './pipeline';
+import { createHandlers } from './registry';
 
 let deps: Promise<PipelineDeps> | undefined;
 
@@ -22,7 +20,7 @@ function dependencies(): Promise<PipelineDeps> {
     const pool = createPool({ ...config.database, timezone: 'Z', connectionLimit: 2 });
     return {
       parse: createEventParser(),
-      handlers,
+      handlers: createHandlers(pool),
       notifications: new NotificationStore(pool),
       contacts: new ContactDirectory(pool),
       email: new SesEmailSender(new SESv2Client({}), config.emailFrom),
