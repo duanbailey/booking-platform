@@ -4,7 +4,7 @@ import { createEventParser } from './events';
 import { NotificationStore } from './notifications';
 import { NoHandlerError, processMessage, type EventHandler, type PipelineDeps } from './pipeline';
 import { CapturingLogger, FakeEmailSender, passwordChanged } from './testing/fakes';
-import { insertUser, notificationsFor, testPool } from './testing/mysql';
+import { insertUser, notificationsFor, testPool, workerPool } from './testing/mysql';
 
 // T23: the pipeline against MySQL. Done when: a duplicate event sends each recipient at most one email. Decisions
 // 2026-11-23 (plan/tasks.md, T23): per recipient a Pending notifications row is inserted or found (Sent: skip;
@@ -13,11 +13,14 @@ import { insertUser, notificationsFor, testPool } from './testing/mysql';
 // a PasswordChanged event's user and a second, fixed user.
 describe('pipeline', () => {
   let pool: Pool;
+  let worker: Pool; // the limited worker user (T26), for everything the pipeline itself does
   beforeAll(() => {
     pool = testPool();
+    worker = workerPool();
   });
   afterAll(async () => {
     await pool.end();
+    await worker.end();
   });
 
   async function setup(handlers?: Map<string, EventHandler>) {
@@ -36,8 +39,8 @@ describe('pipeline', () => {
     const deps: PipelineDeps = {
       parse: createEventParser(),
       handlers: handlers ?? new Map([['PasswordChanged.v1', testHandler]]),
-      notifications: new NotificationStore(pool),
-      contacts: new ContactDirectory(pool),
+      notifications: new NotificationStore(worker),
+      contacts: new ContactDirectory(worker),
       email,
       log,
     };
@@ -141,7 +144,7 @@ describe('pipeline', () => {
     // T23 review: SES accepted it; only the bookkeeping failed. The retry sends again, as the spec accepts.
     const { deps, email, user } = await setup();
     const event = passwordChanged({ userId: user });
-    const store = new NotificationStore(pool);
+    const store = new NotificationStore(worker);
     let failNext = true;
     deps.notifications = {
       claim: (...args) => store.claim(...args),

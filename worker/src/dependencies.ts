@@ -21,7 +21,7 @@ export function createDependencies(
   const pool = createPool({ ...config.database, timezone: 'Z', connectionLimit: 2 });
   return {
     parse: createEventParser(),
-    handlers: createHandlers(pool, new EventBridgeReminderScheduler(clients.scheduler, config.reminders)),
+    handlers: createHandlers(pool, { scheduler: new EventBridgeReminderScheduler(clients.scheduler, config.reminders), app: config.app }),
     notifications: new NotificationStore(pool),
     contacts: new ContactDirectory(pool),
     email: new SesEmailSender(clients.ses, config.emailFrom),

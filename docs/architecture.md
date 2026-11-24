@@ -1,6 +1,6 @@
 # Architecture
 
-How the booking platform's parts fit together on AWS. The sources are [specs/08-architecture.md](../specs/08-architecture.md), [specs/06-events.md](../specs/06-events.md), [specs/07-nfr.md](../specs/07-nfr.md) and ADRs [0002](adr/0002-booking-concurrency-row-lock.md), [0007](adr/0007-aws-testing-with-fakes.md), [0008](adr/0008-outbox-relay-in-api.md) and [0009](adr/0009-terraform-for-infrastructure.md). Dashed boxes are planned and not built yet; the task that builds each is in [plan/tasks.md](../plan/tasks.md). The AWS services themselves (queue, SES, Scheduler and the rest) are provisioned in T27; the code that talks to them sits behind interfaces with fakes (ADR 0007). Updated 2026-11-24 (T1-T25 built).
+How the booking platform's parts fit together on AWS. The sources are [specs/08-architecture.md](../specs/08-architecture.md), [specs/06-events.md](../specs/06-events.md), [specs/07-nfr.md](../specs/07-nfr.md) and ADRs [0002](adr/0002-booking-concurrency-row-lock.md), [0007](adr/0007-aws-testing-with-fakes.md), [0008](adr/0008-outbox-relay-in-api.md) and [0009](adr/0009-terraform-for-infrastructure.md). Dashed boxes are planned and not built yet; the task that builds each is in [plan/tasks.md](../plan/tasks.md). The AWS services themselves (queue, SES, Scheduler and the rest) are provisioned in T27; the code that talks to them sits behind interfaces with fakes (ADR 0007). Updated 2026-11-24 (T1-T26 built).
 
 ## Components
 
@@ -24,7 +24,7 @@ flowchart LR
         queue[["SQS FIFO queue<br/>message group = booking ID<br/>(user ID for account events)"]]
         dlq[["FIFO dead-letter queue"]]
 
-        worker["Node worker<br/>Lambda, TypeScript<br/>(T23-T25 built; T26 adds account emails)"]
+        worker["Node worker<br/>Lambda, TypeScript<br/>(T23-T26), limited DB user<br/>(worker/db/worker-grants.sql)"]
         ses["SES<br/>emails"]
         scheduler["EventBridge Scheduler<br/>24h and 1h reminders (R9)"]
 

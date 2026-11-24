@@ -14,10 +14,11 @@ describe('production handler registry', () => {
     await pool.end();
   });
 
-  it('registers the T24 booking email handlers and the T25 ReminderDue handler', () => {
-    const handlers = createHandlers(pool, new FakeReminderScheduler());
+  it('registers the T24 booking email, T25 ReminderDue and T26 account email handlers', () => {
+    const handlers = createHandlers(pool, { scheduler: new FakeReminderScheduler(), app: { baseUrl: 'https://app.example.test', name: 'Bookly' } });
 
-    for (const key of ['BookingCreated.v1', 'BookingRescheduled.v1', 'BookingCancelled.v1', 'BookingLocalTimeChanged.v1', 'RebookedInsideWindow.v1', 'ReminderDue.v1']) {
+    for (const key of ['BookingCreated.v1', 'BookingRescheduled.v1', 'BookingCancelled.v1', 'BookingLocalTimeChanged.v1', 'RebookedInsideWindow.v1', 'ReminderDue.v1',
+      'AccessGranted.v1', 'PasswordResetRequested.v1', 'PasswordChanged.v1']) {
       expect(handlers.has(key)).toBe(true);
     }
   });

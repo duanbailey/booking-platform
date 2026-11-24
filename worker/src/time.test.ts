@@ -1,4 +1,4 @@
-import { formatDuration, formatRange, formatStart, whenLines } from './time';
+import { formatDuration, formatInstant, formatRange, formatStart, whenLines } from './time';
 
 // T24, R2: times in emails (decided 2026-11-24, plan/tasks.md): the business's zone first, the recipient's own zone
 // only when it differs, a 24-hour range with the date, the IANA name and the UTC offset, and the elapsed duration.
@@ -47,6 +47,10 @@ describe('time formatting (R2)', () => {
     expect(formatDuration(at(0), at(90))).toBe('1 hour 30 minutes');
     expect(formatDuration(at(0), at(121))).toBe('2 hours 1 minute');
     expect(formatDuration(at(0), at(1440))).toBe('24 hours');
+  });
+
+  it('formats an instant with its zone and offset (T26: link expiry, password change time)', () => {
+    expect(formatInstant('2026-12-01T15:00:00.000Z', 'America/New_York')).toBe('Tuesday 1 December 2026, 10:00 America/New_York (UTC-05:00)');
   });
 
   it('formats a start for subjects', () => {

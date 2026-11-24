@@ -36,6 +36,43 @@ export function testPool(): Pool {
   return createPool({ ...serverSettings(), database: testDatabaseName(), timezone: 'Z', connectionLimit: 4 });
 }
 
+export const WORKER_USER_VARIABLE = 'WORKER_TEST_DB_USER';
+export const WORKER_PASSWORD_VARIABLE = 'WORKER_TEST_DB_PASSWORD';
+
+/** The limited database user global setup made from db/worker-grants.sql (T26): what the worker under test uses. */
+export function workerCredentials(): { user: string; password: string } {
+  const user = process.env[WORKER_USER_VARIABLE];
+  const password = process.env[WORKER_PASSWORD_VARIABLE];
+  if (!user || !password) throw new Error(`${WORKER_USER_VARIABLE} is not set: run the tests through Jest's global setup.`);
+  return { user, password };
+}
+
+/** A pool connected as the limited worker user; fixtures use testPool() (root) instead. */
+export function workerPool(): Pool {
+  return createPool({ ...serverSettings(), ...workerCredentials(), database: testDatabaseName(), timezone: 'Z', connectionLimit: 4 });
+}
+
+/** Applies db/worker-grants.sql to a new user for the database (T26). */
+export async function createWorkerUser(database: string, user: string, password: string, grantsSql: string): Promise<void> {
+  const connection = await createConnection({ ...serverSettings(), multipleStatements: true });
+  try {
+    await connection.query('CREATE USER ?@? IDENTIFIED BY ?', [user, '%', password]);
+    const account = connection.format('?@?', [user, '%']);
+    await connection.query(grantsSql.replace(/\{\{database\}\}/g, database).replace(/\{\{user\}\}/g, account));
+  } finally {
+    await connection.end();
+  }
+}
+
+export async function dropWorkerUser(user: string): Promise<void> {
+  const connection = await createConnection(serverSettings());
+  try {
+    await connection.query('DROP USER IF EXISTS ?@?', [user, '%']);
+  } finally {
+    await connection.end();
+  }
+}
+
 export async function createDatabase(name: string, schemaSql: string): Promise<void> {
   const connection = await createConnection({ ...serverSettings(), multipleStatements: true, timezone: 'Z' });
   try {
@@ -114,6 +151,30 @@ export async function insertBooking(
        status, created_at, version)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Confirmed', UTC_TIMESTAMP(6), 1)`,
     [id, fields.staffId, fields.serviceId, fields.customerId, start, end, start, end],
+  );
+  return id;
+}
+
+/** Inserts an invite as the API does (no token yet), T26. */
+export async function insertInvite(
+  pool: Pool, fields: { userId: string; createdBy: string; createdAt?: string; usedAt?: string; id?: string },
+): Promise<string> {
+  const id = fields.id ?? randomUUID();
+  await pool.query(
+    'INSERT INTO user_invites (id, user_id, token_hash, expires_at, used_at, created_by, created_at) VALUES (?, ?, NULL, NULL, ?, ?, ?)',
+    [id, fields.userId, fields.usedAt ? new Date(fields.usedAt) : null, fields.createdBy, new Date(fields.createdAt ?? '2026-11-20T09:00:00Z')],
+  );
+  return id;
+}
+
+/** Inserts a recovery link row as the API does (no token yet), T26. */
+export async function insertPasswordReset(
+  pool: Pool, fields: { userId: string; createdAt?: string; usedAt?: string; id?: string },
+): Promise<string> {
+  const id = fields.id ?? randomUUID();
+  await pool.query(
+    'INSERT INTO password_resets (id, user_id, token_hash, expires_at, used_at, created_at) VALUES (?, ?, NULL, NULL, ?, ?)',
+    [id, fields.userId, fields.usedAt ? new Date(fields.usedAt) : null, new Date(fields.createdAt ?? '2026-11-20T09:00:00Z')],
   );
   return id;
 }

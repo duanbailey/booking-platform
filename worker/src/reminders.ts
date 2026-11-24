@@ -4,7 +4,7 @@
 // eventId is a UUIDv5 of the causing event's eventId and the reminder type; a ReminderDue is dropped if the booking is
 // not Confirmed, starts at another time, or has already started.
 import { createHash } from 'node:crypto';
-import { emailBody } from './bookingEmails';
+import { signedBody } from './bookingEmails';
 import type { ContactDirectory } from './contacts';
 import { MissingRecordError, type BookingDirectory } from './directory';
 import type { Envelope } from './events';
@@ -92,6 +92,8 @@ export interface ReminderDueDeps {
   directory: Pick<BookingDirectory, 'reminderBooking' | 'business' | 'serviceName' | 'staffUserId'>;
   contacts: Pick<ContactDirectory, 'find'>;
   now: () => Date;
+  /** APP_NAME: the subject prefix and the sign-off, as the other booking emails. */
+  appName: string;
 }
 
 /** ReminderDue v1: a reminder to the customer, unless it is stale (specs/06-events.md, R9). */
@@ -119,8 +121,8 @@ export function reminderDueHandler(deps: ReminderDueDeps): EventHandler {
     const slot = { startUtc: booking.startUtc.toISOString(), endUtc: booking.endUtc.toISOString() };
 
     await sendEmail(booking.customerId, reminder.kind, (to) => ({
-      subject: `Reminder: ${service} at ${business.name} on ${formatStart(slot.startUtc, zone)}`,
-      text: emailBody(to, `This is a reminder of your booking ${reminder.phrase}.`, [
+      subject: `${deps.appName}: reminder: ${service} at ${business.name} on ${formatStart(slot.startUtc, zone)}`,
+      text: signedBody(deps.appName, to, `This is a reminder of your booking ${reminder.phrase}.`, [
         `Service: ${service}`,
         `Business: ${business.name}`,
         `With: ${staff.name}`,

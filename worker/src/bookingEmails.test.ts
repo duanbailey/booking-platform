@@ -5,7 +5,7 @@ import { processMessage } from './pipeline';
 import {
   bookingWorld, cancelled, created, envelope, rescheduled, NEW_END, NEW_START, SLOT_END, SLOT_START, type BookingWorld,
 } from './testing/bookingWorld';
-import { insertBooking, notificationsFor, testPool } from './testing/mysql';
+import { insertBooking, notificationsFor, testPool, workerPool } from './testing/mysql';
 
 // T24: booking emails. Acceptance: worker handling table in specs/06-events.md; R2, R4, R6. Decisions 2026-11-24
 // (plan/tasks.md, T24): plain text; times in the business's zone, plus the recipient's own zone when it differs;
@@ -13,14 +13,17 @@ import { insertBooking, notificationsFor, testPool } from './testing/mysql';
 // one email per event and recipient, the customer first. Fixtures in testing/bookingWorld.ts.
 describe('booking emails', () => {
   let pool: Pool;
+  let worker: Pool;
   beforeAll(() => {
     pool = testPool();
+    worker = workerPool();
   });
   afterAll(async () => {
     await pool.end();
+    await worker.end();
   });
 
-  const world = () => bookingWorld(pool);
+  const world = () => bookingWorld({ pool, worker });
   type World = BookingWorld;
 
   const run = (w: World, event: object) => processMessage(JSON.stringify(event), w.deps);
@@ -34,7 +37,7 @@ describe('booking emails', () => {
 
       expect(w.email.sent).toHaveLength(1);
       const [mail] = await w.to(w.customer);
-      expect(mail.subject).toBe('Booking confirmed: Haircut at Cut & Dry on Monday 23 November 2026, 14:00');
+      expect(mail.subject).toBe('Bookly: booking confirmed: Haircut at Cut & Dry on Monday 23 November 2026, 14:00');
       expect(mail.text).toContain('Hello Ann Customer,');
       expect(mail.text).toContain('Service: Haircut');
       expect(mail.text).toContain('Business: Cut & Dry');
@@ -45,6 +48,14 @@ describe('booking emails', () => {
       expect(mail.html).toBeUndefined();
       const rows = await notificationsFor(pool, event.eventId);
       expect(rows.map((r) => [r.recipient_user_id, r.kind, r.status])).toEqual([[w.customer, 'Confirmation', 'Sent']]);
+    });
+
+    it('ends with a sign-off naming the app (APP_NAME, 2026-11-24)', async () => {
+      const w = await world();
+
+      await run(w, created(w));
+
+      expect(w.email.sent[0].text.endsWith('\n\n-- \nSent by Bookly\n')).toBe(true);
     });
 
     it('omits the customer\'s own zone when it is the business\'s (R2)', async () => {
@@ -65,7 +76,7 @@ describe('booking emails', () => {
       await run(w, event);
 
       const [mail] = await w.to(w.samUser);
-      expect(mail.subject).toBe('Booking confirmed: Haircut at Cut & Dry on Sunday 8 March 2026, 01:00');
+      expect(mail.subject).toBe('Bookly: booking confirmed: Haircut at Cut & Dry on Sunday 8 March 2026, 01:00');
       expect(mail.text).toBe([
         'Hello Sam Staff,',
         '',
@@ -76,6 +87,9 @@ describe('booking emails', () => {
         'With: Kim Staff',
         'When: Sunday 8 March 2026, 01:00 (UTC-05:00) - 04:00 (UTC-04:00) America/New_York',
         'Duration: 2 hours',
+        '',
+        '-- ',
+        'Sent by Bookly',
         '',
       ].join('\n'));
     });
@@ -110,7 +124,7 @@ describe('booking emails', () => {
 
       await run(w, created(w));
 
-      expect(w.email.sent[0].subject).toBe('Booking confirmed: Haircut deluxe at Cut & Dry on Monday 23 November 2026, 14:00');
+      expect(w.email.sent[0].subject).toBe('Bookly: booking confirmed: Haircut deluxe at Cut & Dry on Monday 23 November 2026, 14:00');
     });
 
     it('fails the message without sending if a referenced row is missing', async () => {
@@ -132,7 +146,7 @@ describe('booking emails', () => {
 
       expect(w.email.sent).toHaveLength(2);
       const [toCustomer] = await w.to(w.customer);
-      expect(toCustomer.subject).toBe('Booking rescheduled: Haircut at Cut & Dry, now on Tuesday 24 November 2026, 10:00');
+      expect(toCustomer.subject).toBe('Bookly: booking rescheduled: Haircut at Cut & Dry, now on Tuesday 24 November 2026, 10:00');
       expect(toCustomer.text).toContain('Your booking has been moved.');
       expect(toCustomer.text).toContain('Before:\nWith: Sam Staff\nWhen: Monday 23 November 2026, 14:00-15:00 America/New_York (UTC-05:00)\nYour time: Monday 23 November 2026, 19:00-20:00 Europe/London (UTC+00:00)');
       expect(toCustomer.text).toContain('Now:\nWith: Sam Staff\nWhen: Tuesday 24 November 2026, 10:00-11:00 America/New_York (UTC-05:00)\nYour time: Tuesday 24 November 2026, 15:00-16:00 Europe/London (UTC+00:00)');
@@ -182,7 +196,7 @@ describe('booking emails', () => {
 
       expect(w.email.sent).toHaveLength(2);
       const [toCustomer] = await w.to(w.customer);
-      expect(toCustomer.subject).toBe('Booking cancelled: Haircut at Cut & Dry on Monday 23 November 2026, 14:00');
+      expect(toCustomer.subject).toBe('Bookly: booking cancelled: Haircut at Cut & Dry on Monday 23 November 2026, 14:00');
       expect(toCustomer.text).toContain(toCustomerLine);
       expect(toCustomer.text).toContain('When: Monday 23 November 2026, 14:00-15:00 America/New_York (UTC-05:00)');
       const [toSam] = await w.to(w.samUser);
@@ -230,7 +244,7 @@ describe('booking emails', () => {
 
       expect(w.email.sent).toHaveLength(1);
       const [mail] = await w.to(w.customer);
-      expect(mail.subject).toBe('New local time for your booking: Haircut at Cut & Dry');
+      expect(mail.subject).toBe('Bookly: new local time for your booking: Haircut at Cut & Dry');
       expect(mail.text).toContain('Cut & Dry has changed its time zone from America/New_York to America/Chicago.');
       expect(mail.text).toContain('Your booking has not moved, but its local time at the business has changed.');
       expect(mail.text).toContain('With: Sam Staff');
@@ -289,7 +303,7 @@ describe('booking emails', () => {
 
       expect(w.email.sent.map((e) => e.to)).toEqual([await w.addressOf(w.samUser), await w.addressOf(w.ownerUser)]);
       for (const mail of w.email.sent) {
-        expect(mail.subject).toBe('Ann Customer holds two bookings at Cut & Dry');
+        expect(mail.subject).toBe('Bookly: Ann Customer holds two bookings at Cut & Dry');
         expect(mail.text).toContain(`Customer: Ann Customer <${await w.addressOf(w.customer)}>`);
         expect(mail.text).toContain('The original booking still stands');
         expect(mail.text).toContain('Original booking:\nService: Haircut\nWith: Sam Staff\nWhen: Monday 23 November 2026, 14:00-15:00 America/New_York (UTC-05:00)');

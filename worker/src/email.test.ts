@@ -54,6 +54,7 @@ describe('config', () => {
     DB_HOST: 'db', DB_PORT: '3306', DB_USER: 'worker', DB_PASSWORD: 'pw', DB_NAME: 'booking', EMAIL_FROM: 'bookings@example.test',
     REMINDER_GROUP: 'booking-reminders', REMINDER_TARGET_ARN: 'arn:aws:sqs:eu-west-2:123456789012:events.fifo',
     REMINDER_ROLE_ARN: 'arn:aws:iam::123456789012:role/scheduler-send',
+    APP_BASE_URL: 'https://app.example.test/', APP_NAME: 'Bookly',
   };
 
   it('reads the database, From address and reminder settings from the environment (T25)', () => {
@@ -65,7 +66,21 @@ describe('config', () => {
         targetArn: 'arn:aws:sqs:eu-west-2:123456789012:events.fifo',
         roleArn: 'arn:aws:iam::123456789012:role/scheduler-send',
       },
+      app: { baseUrl: 'https://app.example.test', name: 'Bookly' }, // T26: no trailing slash, so links join cleanly
     });
+  });
+
+  it('requires the app settings (T26)', () => {
+    expect(() => loadConfig({ ...complete, APP_BASE_URL: undefined, APP_NAME: '' })).toThrow('APP_BASE_URL, APP_NAME');
+  });
+
+  it('rejects an APP_BASE_URL that is not an http(s) URL, without echoing it (T26)', () => {
+    for (const value of ['app.example.test', 'ftp://app.example.test', 'https://app.example.test/?x=1', 'https://app.example.test/#x']) {
+      expect(() => loadConfig({ ...complete, APP_BASE_URL: value })).toThrow(expect.objectContaining({
+        message: expect.stringContaining('APP_BASE_URL'),
+      }));
+    }
+    expect(loadConfig({ ...complete, APP_BASE_URL: 'http://localhost:5173/app' }).app.baseUrl).toBe('http://localhost:5173/app');
   });
 
   it('requires the reminder settings (T25)', () => {

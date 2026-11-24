@@ -10,10 +10,11 @@ export interface HandlerContext {
   log: Logger;
   /**
    * Emails one recipient at most once for this event (the notifications row decides). The contact is read just
-   * before sending and passed to compose; a send error marks the row Failed and is rethrown, failing the message so
+   * before sending and passed to compose, which runs only when the email is to be sent (so it may do work that must
+   * not repeat for a Sent email, such as making a new invite token, T26) and whose failure marks the row Failed; a send error marks the row Failed and is rethrown, failing the message so
    * SQS delivers it again, and the retry sends only what is not Sent yet.
    */
-  sendEmail(recipientUserId: string, kind: NotificationKind, compose: (contact: Contact) => EmailContent): Promise<void>;
+  sendEmail(recipientUserId: string, kind: NotificationKind, compose: (contact: Contact) => EmailContent | Promise<EmailContent>): Promise<void>;
 }
 
 export type EventHandler = (context: HandlerContext) => Promise<void>;
@@ -56,7 +57,7 @@ export async function processMessage(body: string, deps: PipelineDeps): Promise<
     try {
       const contact = await deps.contacts.find(recipientUserId);
       if (!contact) throw new RecipientNotFoundError(`User ${recipientUserId} not found.`);
-      messageId = await deps.email.send({ to: contact.email, ...compose(contact) });
+      messageId = await deps.email.send({ to: contact.email, ...(await compose(contact)) });
     } catch (error) {
       await deps.notifications.markFailed(row.id, describeError(error));
       log.error('Email failed', { recipientUserId, kind, notificationId: row.id, error: describeErrorForLog(error) });

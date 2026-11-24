@@ -10,16 +10,20 @@ import { insertBooking, insertBusiness, insertService, insertStaff, insertUser }
 
 // Fixtures for the booking event tests (T24, T25): a business in New York with an owner who is also staff, two more
 // staff members, a customer in London, two services and one booking, wired to the production handler registry with
-// fake email and scheduler and a fixed clock.
+// fake email and scheduler and a fixed clock. Fixtures are inserted through `pool` (root); the handlers, notifications and
+// contact lookups use `worker`, the limited user made from db/worker-grants.sql (T26).
 
 export const SLOT_START = '2026-11-23T19:00:00Z'; // 14:00 in New York, 19:00 in London
 export const SLOT_END = '2026-11-23T20:00:00Z';
 export const NEW_START = '2026-11-24T15:00:00Z'; // 10:00 in New York
 export const NEW_END = '2026-11-24T16:00:00Z';
+/** The app settings handlers get in tests (T26). */
+export const TEST_APP = { baseUrl: 'https://app.example.test', name: 'Bookly' };
 /** The fixed "now" of the handlers unless a test passes another: days before both slots. */
 export const DEFAULT_NOW = '2026-11-20T10:00:00Z';
 
-export async function bookingWorld(pool: Pool, options: { now?: string } = {}) {
+export async function bookingWorld(pools: { pool: Pool; worker: Pool }, options: { now?: string } = {}) {
+  const { pool, worker } = pools;
   const tag = randomUUID().slice(0, 8);
   const ownerUser = await insertUser(pool, { name: 'Olive Owner', email: `olive-${tag}@example.test`, timeZone: 'America/New_York' });
   const samUser = await insertUser(pool, { name: 'Sam Staff', email: `sam-${tag}@example.test`, timeZone: 'America/New_York' });
@@ -40,9 +44,9 @@ export async function bookingWorld(pool: Pool, options: { now?: string } = {}) {
   const contacts = new ContactDirectory(pool);
   const deps: PipelineDeps = {
     parse: createEventParser(),
-    handlers: createHandlers(pool, scheduler, () => clock.now),
-    notifications: new NotificationStore(pool),
-    contacts,
+    handlers: createHandlers(worker, { scheduler, app: TEST_APP, now: () => clock.now }),
+    notifications: new NotificationStore(worker),
+    contacts: new ContactDirectory(worker),
     email,
     log,
   };

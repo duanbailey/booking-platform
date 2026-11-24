@@ -7,7 +7,7 @@ import { reminderEventId } from './reminders';
 import {
   bookingWorld, cancelled, created, envelope, rescheduled, NEW_START, SLOT_START, type BookingWorld,
 } from './testing/bookingWorld';
-import { notificationsFor, testPool } from './testing/mysql';
+import { notificationsFor, testPool, workerPool } from './testing/mysql';
 
 // T25: reminders. Acceptance: R9; story "Reminders go out 24 hours and 1 hour before a booking". Decisions
 // 2026-11-24 (plan/tasks.md, T25): due exactly 24 h and 1 h of elapsed time before the start; schedules named
@@ -16,11 +16,14 @@ import { notificationsFor, testPool } from './testing/mysql';
 // dropped if the booking is not Confirmed, starts at another time, or has started.
 describe('reminders (R9)', () => {
   let pool: Pool;
+  let worker: Pool;
   beforeAll(() => {
     pool = testPool();
+    worker = workerPool();
   });
   afterAll(async () => {
     await pool.end();
+    await worker.end();
   });
 
   const parse = createEventParser();
@@ -30,7 +33,7 @@ describe('reminders (R9)', () => {
 
   describe('scheduling on BookingCreated', () => {
     it('schedules the 24h and 1h reminders, delivering ReminderDue to the booking\'s message group', async () => {
-      const w = await bookingWorld(pool);
+      const w = await bookingWorld({ pool, worker });
       const event = created(w);
 
       await run(w, event);
@@ -59,7 +62,7 @@ describe('reminders (R9)', () => {
     });
 
     it('R9: a booking made less than 24 hours ahead skips the 24h reminder and still schedules the 1h one', async () => {
-      const w = await bookingWorld(pool, { now: '2026-11-22T20:00:00Z' }); // 23 hours before the start
+      const w = await bookingWorld({ pool, worker }, { now: '2026-11-22T20:00:00Z' }); // 23 hours before the start
 
       await run(w, created(w));
 
@@ -67,17 +70,17 @@ describe('reminders (R9)', () => {
     });
 
     it('R9: a reminder due exactly now counts as passed; one due a minute later is scheduled', async () => {
-      const atDue = await bookingWorld(pool, { now: '2026-11-22T19:00:00Z' });
+      const atDue = await bookingWorld({ pool, worker }, { now: '2026-11-22T19:00:00Z' });
       await run(atDue, created(atDue));
       expect(atDue.scheduler.calls).toEqual([`upsert ${name(atDue, '1h')}`]);
 
-      const before = await bookingWorld(pool, { now: '2026-11-22T18:59:00Z' });
+      const before = await bookingWorld({ pool, worker }, { now: '2026-11-22T18:59:00Z' });
       await run(before, created(before));
       expect(before.scheduler.calls).toHaveLength(2);
     });
 
     it('R9: a booking made less than an hour ahead gets no reminders', async () => {
-      const w = await bookingWorld(pool, { now: '2026-11-23T18:30:00Z' });
+      const w = await bookingWorld({ pool, worker }, { now: '2026-11-23T18:30:00Z' });
 
       await run(w, created(w));
 
@@ -86,7 +89,7 @@ describe('reminders (R9)', () => {
     });
 
     it('a redelivered event writes the same schedules with the same reminder IDs', async () => {
-      const w = await bookingWorld(pool);
+      const w = await bookingWorld({ pool, worker });
       const body = JSON.stringify(created(w));
 
       await run(w, body);
@@ -98,7 +101,7 @@ describe('reminders (R9)', () => {
     });
 
     it('sends the emails before touching reminders: a failed email schedules nothing', async () => {
-      const w = await bookingWorld(pool);
+      const w = await bookingWorld({ pool, worker });
       w.email.failFor.add(await w.addressOf(w.customer));
 
       await expect(run(w, created(w))).rejects.toThrow('MessageRejected');
@@ -107,7 +110,7 @@ describe('reminders (R9)', () => {
     });
 
     it('a scheduler failure fails the message; the retry schedules without a second email', async () => {
-      const w = await bookingWorld(pool);
+      const w = await bookingWorld({ pool, worker });
       const body = JSON.stringify(created(w));
       w.scheduler.failing = true;
 
@@ -122,7 +125,7 @@ describe('reminders (R9)', () => {
 
   describe('moving on BookingRescheduled', () => {
     it('moves both reminders to the new start with new reminder IDs', async () => {
-      const w = await bookingWorld(pool);
+      const w = await bookingWorld({ pool, worker });
       const create = created(w);
       await run(w, create);
       w.scheduler.calls.length = 0;
@@ -141,7 +144,7 @@ describe('reminders (R9)', () => {
     });
 
     it('R9: deletes a reminder whose new time has already passed', async () => {
-      const w = await bookingWorld(pool, { now: '2026-11-23T16:00:00Z' }); // 23 hours before the new start
+      const w = await bookingWorld({ pool, worker }, { now: '2026-11-23T16:00:00Z' }); // 23 hours before the new start
 
       await run(w, rescheduled(w, w.kim));
 
@@ -152,7 +155,7 @@ describe('reminders (R9)', () => {
   describe('deleting on BookingCancelled', () => {
     it.each(['CustomerCancelled', 'BusinessCancelled', 'TimeOff', 'AvailabilityChanged', 'StaffRemoved'])(
       'R9: %s deletes both pending reminders, after the emails', async (reason) => {
-        const w = await bookingWorld(pool);
+        const w = await bookingWorld({ pool, worker });
         await run(w, created(w));
         w.scheduler.calls.length = 0;
 
@@ -160,12 +163,12 @@ describe('reminders (R9)', () => {
 
         expect(w.scheduler.calls).toEqual([`delete ${name(w, '24h')}`, `delete ${name(w, '1h')}`]);
         expect(w.scheduler.schedules.size).toBe(0);
-        expect(w.email.sent.map((e) => e.subject.split(':')[0])).toEqual(['Booking confirmed', 'Booking cancelled', 'Booking cancelled']);
+        expect(w.email.sent.map((e) => e.subject.split(': ')[1])).toEqual(['booking confirmed', 'booking cancelled', 'booking cancelled']);
       });
   });
 
   it('BookingLocalTimeChanged and RebookedInsideWindow leave reminders alone', async () => {
-    const w = await bookingWorld(pool);
+    const w = await bookingWorld({ pool, worker });
     const slot = { staffId: w.sam, startUtc: SLOT_START, endUtc: '2026-11-23T20:00:00Z' };
 
     await run(w, envelope('BookingLocalTimeChanged', {
@@ -188,7 +191,7 @@ describe('reminders (R9)', () => {
     }
 
     it('R9: emails the customer a 24h reminder in the T24 style', async () => {
-      const w = await bookingWorld(pool);
+      const w = await bookingWorld({ pool, worker });
       const body = await scheduled(w, '24h');
       w.clock.now = new Date('2026-11-22T19:00:30Z');
 
@@ -197,7 +200,7 @@ describe('reminders (R9)', () => {
       const mails = await w.to(w.customer);
       expect(mails).toHaveLength(2); // the confirmation, then the reminder
       const reminder = mails[1];
-      expect(reminder.subject).toBe('Reminder: Haircut at Cut & Dry on Monday 23 November 2026, 14:00');
+      expect(reminder.subject).toBe('Bookly: reminder: Haircut at Cut & Dry on Monday 23 November 2026, 14:00');
       expect(reminder.text).toBe([
         'Hello Ann Customer,',
         '',
@@ -210,13 +213,16 @@ describe('reminders (R9)', () => {
         'Your time: Monday 23 November 2026, 19:00-20:00 Europe/London (UTC+00:00)',
         'Duration: 1 hour',
         '',
+        '-- ',
+        'Sent by Bookly',
+        '',
       ].join('\n'));
       const rows = await notificationsFor(pool, JSON.parse(body).eventId);
       expect(rows.map((r) => [r.recipient_user_id, r.kind, r.status])).toEqual([[w.customer, 'Reminder24h', 'Sent']]);
     });
 
     it('R9: emails the 1h reminder', async () => {
-      const w = await bookingWorld(pool);
+      const w = await bookingWorld({ pool, worker });
       const body = await scheduled(w, '1h');
       w.clock.now = new Date('2026-11-23T18:00:00Z');
 
@@ -229,7 +235,7 @@ describe('reminders (R9)', () => {
     });
 
     it('a redelivered reminder is sent once', async () => {
-      const w = await bookingWorld(pool);
+      const w = await bookingWorld({ pool, worker });
       const body = await scheduled(w, '1h');
       w.clock.now = new Date('2026-11-23T18:00:00Z');
 
@@ -240,7 +246,7 @@ describe('reminders (R9)', () => {
     });
 
     it('uses the names and the business\'s time zone current when it is sent', async () => {
-      const w = await bookingWorld(pool);
+      const w = await bookingWorld({ pool, worker });
       const body = await scheduled(w, '24h');
       await pool.query('UPDATE businesses SET time_zone = ? WHERE id = ?', ['America/Chicago', w.businessId]);
       await pool.query('UPDATE bookings SET staff_id = ? WHERE id = ?', [w.kim, w.bookingId]);
@@ -262,7 +268,7 @@ describe('reminders (R9)', () => {
       }
 
       it('when the booking was cancelled', async () => {
-        const w = await bookingWorld(pool);
+        const w = await bookingWorld({ pool, worker });
         const body = await scheduled(w, '24h');
         await pool.query(
           `UPDATE bookings SET status = 'Cancelled', cancelled_at = UTC_TIMESTAMP(6), cancelled_by = customer_id,
@@ -273,7 +279,7 @@ describe('reminders (R9)', () => {
       });
 
       it('when the booking now starts at another time (a reminder for the old time)', async () => {
-        const w = await bookingWorld(pool);
+        const w = await bookingWorld({ pool, worker });
         const body = await scheduled(w, '24h');
         const newStart = new Date(NEW_START);
         const newEnd = new Date(newStart.getTime() + 3600_000);
@@ -286,7 +292,7 @@ describe('reminders (R9)', () => {
       });
 
       it('when the booking has already started (delivered late)', async () => {
-        const w = await bookingWorld(pool);
+        const w = await bookingWorld({ pool, worker });
         const body = await scheduled(w, '1h');
         w.clock.now = new Date(SLOT_START);
 
@@ -295,7 +301,7 @@ describe('reminders (R9)', () => {
     });
 
     it('fails the message if the booking does not exist', async () => {
-      const w = await bookingWorld(pool);
+      const w = await bookingWorld({ pool, worker });
       const event = envelope('ReminderDue', { bookingId: randomUUID(), reminder: '24h', scheduledForStartUtc: '2026-11-23T19:00:00.000Z' });
 
       await expect(run(w, event)).rejects.toBeInstanceOf(MissingRecordError);

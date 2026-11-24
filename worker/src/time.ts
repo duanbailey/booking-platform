@@ -52,6 +52,12 @@ function formatOffset(minutes: number): string {
   return `UTC${sign}${pad(Math.floor(abs / 60))}:${pad(abs % 60)}`;
 }
 
+/** E.g. "Tuesday 1 December 2026, 10:00 America/New_York (UTC-05:00)": one instant (T26: expiries, change times). */
+export function formatInstant(utc: string, zone: string): string {
+  const at = local(utc, zone);
+  return `${at.date}, ${at.time} ${zone} (${at.offset})`;
+}
+
 /** E.g. "Monday 23 November 2026, 14:00": a start in the zone, for subjects. */
 export function formatStart(startUtc: string, zone: string): string {
   const start = local(startUtc, zone);

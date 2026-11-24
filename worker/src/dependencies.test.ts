@@ -4,7 +4,7 @@ import type { Pool } from 'mysql2/promise';
 import { createDependencies } from './dependencies';
 import { processMessage } from './pipeline';
 import { bookingWorld, created } from './testing/bookingWorld';
-import { serverSettings, testDatabaseName, testPool } from './testing/mysql';
+import { serverSettings, testDatabaseName, testPool, workerCredentials } from './testing/mysql';
 
 // T25 review: the Lambda entry point's wiring. The dependencies built from the environment must send email from the
 // configured address and create reminder schedules in the configured group, targeting the configured queue with the
@@ -19,13 +19,15 @@ describe('production dependencies', () => {
   });
 
   it('wires the configured SES From address and Scheduler settings into the handlers', async () => {
-    const w = await bookingWorld(pool); // test data only; its own fakes are not used here
+    const w = await bookingWorld({ pool, worker: pool }); // test data only; its own handlers and fakes are not used here
     const server = serverSettings();
+    const limited = workerCredentials(); // T26: the production wiring runs as the limited user
     const env = {
-      DB_HOST: server.host, DB_PORT: String(server.port), DB_USER: server.user, DB_PASSWORD: server.password,
+      DB_HOST: server.host, DB_PORT: String(server.port), DB_USER: limited.user, DB_PASSWORD: limited.password,
       DB_NAME: testDatabaseName(), EMAIL_FROM: 'bookings@example.test',
       REMINDER_GROUP: 'booking-reminders', REMINDER_TARGET_ARN: 'arn:aws:sqs:eu-west-2:123456789012:events.fifo',
       REMINDER_ROLE_ARN: 'arn:aws:iam::123456789012:role/scheduler-send',
+      APP_BASE_URL: 'https://app.example.test', APP_NAME: 'Bookly',
     };
     const sesCommands: SendEmailCommand[] = [];
     const schedulerCommands: object[] = [];
