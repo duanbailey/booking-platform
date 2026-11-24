@@ -1,12 +1,10 @@
 # Open questions
 
-Outstanding spec work as of 2026-11-15. Decisions already made are recorded in `specs/` and `docs/adr/`; this file lists only what is still open. Remove items as they are resolved.
+Optional spec items that are still open. Decisions are recorded in `specs/`, `docs/adr/` and the "Decided" list in `plan/tasks.md`; this file lists only what is still open. Remove items as they are resolved.
 
 ## Status
 
-Spec work is done: events, authorization and the API (`specs/04-api.openapi.yaml`, which replaced the outline) are written, and the task plan is in `plan/tasks.md`. Decisions made on 2026-11-15 are recorded in `specs/` and `docs/adr/`.
-
-**Next:** T3 (API cross-cutting), in progress on branch `t3-api-cross-cutting`. T1 and T2 done 2026-11-16; all blocking decisions settled (ADRs 0006-0010; refresh tokens and the T3 cross-cutting choices confirmed 2026-11-17); code is on GitHub. The 2026-11-15 review below was skipped by the user and kept for reference.
+Updated 2026-11-24. Since T3, each task's decisions go into the "Decided" list in `plan/tasks.md` (or `specs/` and an ADR), and progress is the ticked tasks there; this file is no longer a status page. Nothing here blocks a task: the only open items are the two optional wording suggestions under "Smaller items". The sections between, from the 2026-11-15 and 2026-11-16 reviews, are kept for reference (the 2026-11-15 review was skipped by the user).
 
 ## Schema choices to confirm (T2, 2026-11-16)
 
