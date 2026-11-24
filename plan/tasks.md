@@ -125,19 +125,19 @@ If a new one comes up, add it here with the task it blocks, and record the answe
   Acceptance: R6; story "Staff or owner blocks time off".
   Locks: the confirming user's row FOR SHARE before the staff lock (cancelled_by references it; ADR 0002 "Implicit locks on user rows count"), with a test.
 
-- [ ] **T19. Availability changes with R6.** Weekly availability, date exception `PUT` and `DELETE` (confirmation in the `confirmAffectedBookingIds` query parameter), reason `AvailabilityChanged`.
+- [x] **T19. Availability changes with R6.** Weekly availability, date exception `PUT` and `DELETE` (confirmation in the `confirmAffectedBookingIds` query parameter), reason `AvailabilityChanged`.
   Acceptance: R6, R8; the two R6 scenarios in the availability story.
   Locks: the confirming user's row FOR SHARE before the staff lock, as T18.
 
-- [ ] **T20. Removing staff.** `POST /v1/staff/{staffId}/remove`, reason `StaffRemoved`, `removed_at` set, lock taken.
+- [x] **T20. Removing staff.** `POST /v1/staff/{staffId}/remove`, reason `StaffRemoved`, `removed_at` set, lock taken.
   Acceptance: story "Owner removes staff"; R6.
   Locks: the owner's row FOR SHARE before the staff lock, as T18.
 
-- [ ] **T21. Outbox relay.** Publishes unpublished outbox rows to the SQS FIFO queue with the message group from `specs/06-events.md`, then marks them published. Hosted service in the API claiming rows with `FOR UPDATE SKIP LOCKED`, deduplication ID = `eventId` (ADR 0008); publisher interface with an in-memory fake, plus a real-AWS test (ADR 0007).
+- [x] **T21. Outbox relay.** Publishes unpublished outbox rows to the SQS FIFO queue with the message group from `specs/06-events.md`, then marks them published. Hosted service in the API claiming rows with `FOR UPDATE SKIP LOCKED`, deduplication ID = `eventId` (ADR 0008); publisher interface with an in-memory fake, plus a real-AWS test (ADR 0007).
   Done when: tests show rows are published in order per message group, published at least once, and never lost between commit and publish.
   Ordering (settled 2026-11-23, see Decided): migration adding `outbox.seq`; the relay orders each group by it. It must never publish a row while an earlier unpublished row of the same group exists (e.g. one another relay instance has claimed and `SKIP LOCKED` skipped), and a failed send must hold back that group's later rows until it succeeds, so retries and batches keep the order. Check while implementing that every event-writing flow holds its group's row lock (user-group events: invites, password reset and change).
 
-- [ ] **T22. Business time zone change.** `POST .../time-zone-change` (all staff locks, confirm pattern, 200 no-op for the current zone, audit row, `BookingLocalTimeChanged` per affected booking) and `GET .../time-zone-changes`.
+- [x] **T22. Business time zone change.** `POST .../time-zone-change` (all staff locks, confirm pattern, 200 no-op for the current zone, audit row, `BookingLocalTimeChanged` per affected booking) and `GET .../time-zone-changes`.
   Acceptance: R2; story "Owner changes the business's time zone".
   Locks: the owner's row FOR SHARE before all staff locks (changed_by and cancelled_by reference it; ADR 0002 "Implicit locks on user rows count"), with a test.
   Note (T21, 2026-11-23): `BookingLocalTimeChanged` needs a lock on each affected booking row (e.g. read them FOR UPDATE under the staff locks), since the change doesn't otherwise touch them: outbox ordering relies on every event writer holding a lock on its group's row (specs/05-data-model.md), and the R4 rebook check can write `RebookedInsideWindow` for the same booking while holding only that row FOR SHARE.
@@ -146,15 +146,15 @@ If a new one comes up, add it here with the task it blocks, and record the answe
 
 ## Worker
 
-- [ ] **T23. Worker skeleton.** Lambda handler for the SQS FIFO queue: envelope and schema validation, unknown `eventType` or `schemaVersion` left to fail into the dead-letter queue, `notifications` idempotency (Pending, Sent, Failed), an email-sender interface over SES, correlation ID logging, and contact details looked up at send time.
+- [x] **T23. Worker skeleton.** Lambda handler for the SQS FIFO queue: envelope and schema validation, unknown `eventType` or `schemaVersion` left to fail into the dead-letter queue, `notifications` idempotency (Pending, Sent, Failed), an email-sender interface over SES, correlation ID logging, and contact details looked up at send time.
   Done when: a duplicate event sends each recipient at most one email.
   Note (T21 review, 2026-11-23): the message body is the stored envelope as MySQL returns its JSON column: the same content as the API wrote, but in canonical form (keys sorted, MySQL's spacing). Parse it as JSON and validate it by schema; never depend on key order or exact bytes (e.g. no signatures or hashes over the raw body).
 
-- [ ] **T24. Booking emails.** Handlers for `BookingCreated`, `BookingRescheduled` (old and new staff), `BookingCancelled`, `BookingLocalTimeChanged` and `RebookedInsideWindow`, showing both time zones (R2).
+- [x] **T24. Booking emails.** Handlers for `BookingCreated`, `BookingRescheduled` (old and new staff), `BookingCancelled`, `BookingLocalTimeChanged` and `RebookedInsideWindow`, showing both time zones (R2).
   Acceptance: worker handling table in `specs/06-events.md`; R2, R4, R6.
   Note (T20 review, 2026-11-23): a `BookingCancelled` with reason `StaffRemoved` goes to the customer and to the staff member, who has just been removed from the business (R6: "all affected users"; their account still exists, so the contact lookup at send time works). Decide the wording for each recipient by reason (e.g. the removed member may need "you were removed from X" rather than a plain cancellation, and the customer that their staff member is no longer available), and whether the removed member should get one email per cancelled booking or one summary. There is no event for the removal itself (T20), so these emails are the member's only notice.
 
-- [ ] **T25. Reminders.** Scheduling, moving and deleting EventBridge Scheduler reminders named by booking ID, skipping past times, and handling `ReminderDue` (dropped if stale).
+- [x] **T25. Reminders.** Scheduling, moving and deleting EventBridge Scheduler reminders named by booking ID, skipping past times, and handling `ReminderDue` (dropped if stale).
   Acceptance: R9; story "Reminders go out 24 hours and 1 hour before a booking".
   Also: update `docs/architecture.md` with how `ReminderDue` reaches the worker (the dotted arrow) and drop the dashed style from the parts T21-T25 built.
 
