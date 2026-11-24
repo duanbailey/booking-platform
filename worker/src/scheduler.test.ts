@@ -10,6 +10,7 @@ describe('EventBridge reminder scheduler', () => {
     groupName: 'booking-reminders',
     targetArn: 'arn:aws:sqs:eu-west-2:123456789012:events.fifo',
     roleArn: 'arn:aws:iam::123456789012:role/scheduler-send',
+    deadLetterArn: 'arn:aws:sqs:eu-west-2:123456789012:reminders-dlq',
   };
   const schedule = {
     name: 'reminder-0190a000-0000-7000-8000-000000000001-24h',
@@ -49,6 +50,9 @@ describe('EventBridge reminder scheduler', () => {
       RoleArn: settings.roleArn,
       Input: schedule.input,
       SqsParameters: { MessageGroupId: schedule.messageGroupId },
+      // T27b: retry delivery for up to an hour, then the Scheduler dead-letter queue (alarmed).
+      RetryPolicy: { MaximumEventAgeInSeconds: 3600, MaximumRetryAttempts: 20 },
+      DeadLetterConfig: { Arn: settings.deadLetterArn },
     },
   };
 
@@ -100,15 +104,16 @@ describe('EventBridge reminder scheduler', () => {
   });
 
   // ADR 0007: a small real-AWS suite, skipped unless configured (BOOKING_TEST_SCHEDULER_GROUP, _TARGET_ARN and
-  // _ROLE_ARN, with AWS credentials and region in the environment). Creates, moves and deletes a schedule a year ahead, so
+  // _ROLE_ARN and _DLQ_ARN, with AWS credentials and region in the environment). Creates, moves and deletes a schedule a year ahead, so
   // one left behind by a failed run never fires during the run's lifetime.
   const configured = process.env.BOOKING_TEST_SCHEDULER_GROUP && process.env.BOOKING_TEST_SCHEDULER_TARGET_ARN
-    && process.env.BOOKING_TEST_SCHEDULER_ROLE_ARN;
+    && process.env.BOOKING_TEST_SCHEDULER_ROLE_ARN && process.env.BOOKING_TEST_SCHEDULER_DLQ_ARN;
   (configured ? it : it.skip)('[RealAws] creates, moves and deletes a schedule', async () => {
     const real = new EventBridgeReminderScheduler(new SchedulerClient({}), {
       groupName: process.env.BOOKING_TEST_SCHEDULER_GROUP!,
       targetArn: process.env.BOOKING_TEST_SCHEDULER_TARGET_ARN!,
       roleArn: process.env.BOOKING_TEST_SCHEDULER_ROLE_ARN!,
+      deadLetterArn: process.env.BOOKING_TEST_SCHEDULER_DLQ_ARN!,
     });
     const name = `reminder-realaws-test-${Date.now()}`;
     const at = new Date(Date.now() + 365 * 24 * 3600_000);

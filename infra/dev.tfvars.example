@@ -1,0 +1,11 @@
+# Copy to infra/dev.tfvars (git-ignored: it names personal addresses) and fill in. See variables.tf for the rest.
+
+# The sender for all email. AWS emails it a verification link on the first apply; in the SES sandbox, mail is only
+# delivered to verified addresses (verify test recipients in the SES console).
+email_from = "you@example.com"
+
+# Where alarm notifications go; AWS sends a subscription confirmation first. Leave empty for none.
+alarm_email = "you@example.com"
+
+# Invite and recovery links. Empty: the API's CloudFront URL (there is no frontend yet).
+app_base_url = ""

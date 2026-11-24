@@ -54,6 +54,7 @@ describe('config', () => {
     DB_HOST: 'db', DB_PORT: '3306', DB_USER: 'worker', DB_PASSWORD: 'pw', DB_NAME: 'booking', EMAIL_FROM: 'bookings@example.test',
     REMINDER_GROUP: 'booking-reminders', REMINDER_TARGET_ARN: 'arn:aws:sqs:eu-west-2:123456789012:events.fifo',
     REMINDER_ROLE_ARN: 'arn:aws:iam::123456789012:role/scheduler-send',
+    REMINDER_DLQ_ARN: 'arn:aws:sqs:eu-west-2:123456789012:reminders-dlq',
     APP_BASE_URL: 'https://app.example.test/', APP_NAME: 'Bookly',
   };
 
@@ -65,9 +66,26 @@ describe('config', () => {
         groupName: 'booking-reminders',
         targetArn: 'arn:aws:sqs:eu-west-2:123456789012:events.fifo',
         roleArn: 'arn:aws:iam::123456789012:role/scheduler-send',
+        deadLetterArn: 'arn:aws:sqs:eu-west-2:123456789012:reminders-dlq', // T27b
       },
       app: { baseUrl: 'https://app.example.test', name: 'Bookly' }, // T26: no trailing slash, so links join cleanly
     });
+  });
+
+  it('takes the database password from Secrets Manager instead when DB_PASSWORD_SECRET_ARN is set (T27b)', () => {
+    const arn = 'arn:aws:secretsmanager:us-east-2:123456789012:secret:worker-db';
+    const config = loadConfig({ ...complete, DB_PASSWORD: undefined, DB_PASSWORD_SECRET_ARN: arn });
+
+    expect(config.database).toEqual({ host: 'db', port: 3306, user: 'worker', passwordSecretArn: arn, database: 'booking' });
+  });
+
+  it('needs exactly one of DB_PASSWORD and DB_PASSWORD_SECRET_ARN (T27b)', () => {
+    expect(() => loadConfig({ ...complete, DB_PASSWORD: undefined })).toThrow('DB_PASSWORD or DB_PASSWORD_SECRET_ARN');
+    expect(() => loadConfig({ ...complete, DB_PASSWORD_SECRET_ARN: 'arn:x' })).toThrow('only one of DB_PASSWORD and DB_PASSWORD_SECRET_ARN');
+  });
+
+  it('requires the reminder dead-letter queue (T27b)', () => {
+    expect(() => loadConfig({ ...complete, REMINDER_DLQ_ARN: undefined })).toThrow('REMINDER_DLQ_ARN');
   });
 
   it('requires the app settings (T26)', () => {

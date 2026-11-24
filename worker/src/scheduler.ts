@@ -29,6 +29,8 @@ export interface SchedulerSettings {
   targetArn: string;
   /** The role Scheduler assumes to send to the queue. */
   roleArn: string;
+  /** T27b: the standard SQS queue a reminder goes to when Scheduler gives up delivering it (alarmed). */
+  deadLetterArn: string;
 }
 
 /**
@@ -53,6 +55,9 @@ export class EventBridgeReminderScheduler implements ReminderScheduler {
         RoleArn: this.settings.roleArn,
         Input: schedule.input,
         SqsParameters: { MessageGroupId: schedule.messageGroupId },
+        // T27b (decided 2026-11-24): retry for up to an hour (a later reminder is useless), then the dead-letter queue.
+        RetryPolicy: { MaximumEventAgeInSeconds: 3600, MaximumRetryAttempts: 20 },
+        DeadLetterConfig: { Arn: this.settings.deadLetterArn },
       },
     };
     try {
