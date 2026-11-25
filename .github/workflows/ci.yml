@@ -27,7 +27,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
-          dotnet-version: "10.0.x"
+          global-json-file: global.json # SDK 10; the runner image also has newer SDKs
       - name: Test
         run: dotnet test tests/BookingPlatform.Api.Tests > unit.log 2>&1 || { tail -50 unit.log; exit 1; }
       - name: Summary
@@ -47,7 +47,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
-          dotnet-version: "10.0.x"
+          global-json-file: global.json # SDK 10; the runner image also has newer SDKs
       - name: Start MySQL (docker-compose.yml, as locally)
         run: docker compose up -d --wait
       - name: Test
@@ -69,7 +69,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
-          dotnet-version: "10.0.x"
+          global-json-file: global.json # SDK 10; the runner image also has newer SDKs
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
@@ -77,9 +77,10 @@ jobs:
           cache-dependency-path: worker/package-lock.json
       - name: Start MySQL (docker-compose.yml, as locally)
         run: docker compose up -d --wait
-      # Jest's global setup builds the test schema with `dotnet ef migrations script`.
-      - name: Restore dotnet-ef
-        run: dotnet tool restore
+      # Jest's global setup builds the test schema with `dotnet ef migrations script`, which needs the API project
+      # restored (it doesn't restore by itself).
+      - name: Restore dotnet-ef and the API project
+        run: dotnet tool restore && dotnet restore src/BookingPlatform.Api
       - name: Install
         working-directory: worker
         run: npm ci --no-audit --no-fund
@@ -145,7 +146,7 @@ jobs:
       - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         if: steps.config.outputs.configured == 'true'
         with:
-          dotnet-version: "10.0.x"
+          global-json-file: global.json # SDK 10; the runner image also has newer SDKs
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         if: steps.config.outputs.configured == 'true'
         with:
@@ -168,6 +169,7 @@ jobs:
         working-directory: worker
         run: |
           dotnet tool restore
+          dotnet restore ../src/BookingPlatform.Api
           npm ci --no-audit --no-fund
           npx jest src/email.test.ts src/scheduler.test.ts > ../real-worker.log 2>&1 || { cat ../real-worker.log; exit 1; }
           grep -E "^Tests:" ../real-worker.log
