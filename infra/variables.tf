@@ -74,7 +74,7 @@ variable "api_desired_count" {
 }
 
 variable "github_repository" {
-  description = "GitHub repository (owner/name) whose main branch may assume the CI role for the real-AWS tests (infra/ci.tf). Empty: no CI role."
+  description = "The repository whose main branch may assume the CI role for the real-AWS tests (infra/ci.tf), written as in GitHub's OIDC subject claim: owner@<owner id>/<name>@<repository id> (GitHub includes the immutable IDs; the failed AssumeRoleWithWebIdentity event in CloudTrail shows the exact value). Empty: no CI role."
   type        = string
   default     = ""
 }

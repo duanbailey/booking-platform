@@ -1,6 +1,8 @@
 # Runbook
 
-How to deploy, operate and tear down the dev environment on AWS. The infrastructure is in [`infra/`](../infra) (Terraform, [ADR 0009](adr/0009-terraform-for-infrastructure.md)); how the parts fit together is in [architecture.md](architecture.md). Written after the first deployment (T27c, 2026-11-25).
+How to deploy, operate and tear down the dev environment on AWS.
+
+> **Status (2026-11-25): torn down** to save the account's Free plan credits; only the bootstrap stack (state bucket, ECR repository) remains. To bring it back, follow "Deploying" (the first deploy creates everything), then the first-deployment steps: confirm the SES and SNS emails, make a bootstrap admin, and set the GitHub repository variables again from `terraform -chdir=infra output ci_repository_variables` (`AWS_CI_ROLE_ARN` was deleted so the real-AWS job skips meanwhile). The infrastructure is in [`infra/`](../infra) (Terraform, [ADR 0009](adr/0009-terraform-for-infrastructure.md)); how the parts fit together is in [architecture.md](architecture.md). Written after the first deployment (T27c, 2026-11-25).
 
 ## The environment
 
@@ -149,7 +151,7 @@ A normal run skips these (two in the worker, one in C#); check the summary shows
 
 ## CI
 
-GitHub Actions ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml), T27d) runs the C# unit, C# integration and worker suites on every push, and the real-AWS tests on pushes to `main` and on manual runs (Actions > CI > Run workflow, branch `main`). The real-AWS job assumes the role `booking-platform-dev-ci` through GitHub's OIDC provider (`infra/ci.tf`); only `refs/heads/main` of `github_repository` (set in `dev.tfvars`) may assume it, and it may only use the SQS test queue, send from the SES sender, and manage schedules in the reminders group. Its SES test mails the SES mailbox simulator, so no real email is sent.
+GitHub Actions ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml), T27d) runs the C# unit, C# integration and worker suites on every push, and the real-AWS tests on pushes to `main` and on manual runs (Actions > CI > Run workflow, branch `main`). The real-AWS job assumes the role `booking-platform-dev-ci` through GitHub's OIDC provider (`infra/ci.tf`); only `refs/heads/main` of `github_repository` (set in `dev.tfvars`) may assume it, and it may only use the SQS test queue, send from the SES sender, and manage schedules in the reminders group. `github_repository` is written as in GitHub's OIDC subject claim, which includes the immutable owner and repository IDs: `owner@<owner id>/<name>@<repository id>`. If the job fails with "Not authorized to perform sts:AssumeRoleWithWebIdentity", the failed event in CloudTrail (event name `AssumeRoleWithWebIdentity`, us-east-2) shows the subject GitHub sent as `userIdentity.userName`; the trust policy must match it exactly. Its SES test mails the SES mailbox simulator, so no real email is sent.
 
 The job reads repository variables (Settings > Secrets and variables > Actions > Variables), none of them secret. Enter them once, and again after a rebuild (the ARNs and queue URL keep their names, but the OIDC provider and role are recreated):
 

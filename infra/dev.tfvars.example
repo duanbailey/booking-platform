@@ -10,5 +10,6 @@ alarm_email = "you@example.com"
 # Invite and recovery links. Empty: the API's CloudFront URL (there is no frontend yet).
 app_base_url = ""
 
-# The GitHub repository (owner/name) whose main branch may run the real-AWS tests in CI. Empty: no CI role.
-github_repository = "owner/booking-platform"
+# The GitHub repository whose main branch may run the real-AWS tests in CI, as in GitHub's OIDC subject claim:
+# owner@<owner id>/<name>@<repository id> (see docs/runbook.md, CI). Empty: no CI role.
+github_repository = "owner@123456/booking-platform@123456789"

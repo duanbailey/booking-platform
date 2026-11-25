@@ -2,6 +2,8 @@
 # (ADR 0007) against this environment. Only pushes to main (and manual runs on main) of var.github_repository may
 # assume it, and it may do only what those tests do. Created only when var.github_repository is set; destroyed with
 # the environment. The values the workflow reads are in the ci_repository_variables output (docs/runbook.md, CI).
+# GitHub's subject claim carries the owner's and repository's immutable IDs (repo:owner@id/name@id:ref:...), so a
+# deleted repository whose name is reused cannot assume the role; the first run failed against the plain owner/name.
 
 locals {
   ci_enabled = var.github_repository != ""
