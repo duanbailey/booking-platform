@@ -1,0 +1,174 @@
+# CI (T27d, decided 2026-11-25). The C# and worker suites run on every push; the real-AWS tests (ADR 0007) run on
+# pushes to main and on manual dispatch, through a GitHub OIDC role (infra/ci.tf) that trusts only refs/heads/main.
+# Third-party actions are pinned to commit SHAs (the tag is in the comment).
+name: CI
+
+on:
+  push:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: "1"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+
+jobs:
+  csharp-unit:
+    name: C# unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          dotnet-version: "10.0.x"
+      - name: Test
+        run: dotnet test tests/BookingPlatform.Api.Tests > unit.log 2>&1 || { tail -50 unit.log; exit 1; }
+      - name: Summary
+        if: always()
+        run: grep -E "Passed!|Failed!" unit.log || true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: failure()
+        with:
+          name: unit-log
+          path: unit.log
+
+  csharp-integration:
+    name: C# integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          dotnet-version: "10.0.x"
+      - name: Start MySQL (docker-compose.yml, as locally)
+        run: docker compose up -d --wait
+      - name: Test
+        run: dotnet test tests/BookingPlatform.IntegrationTests > integration.log 2>&1 || { tail -80 integration.log; exit 1; }
+      - name: Summary
+        if: always()
+        run: grep -E "Passed!|Failed!" integration.log || true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: failure()
+        with:
+          name: integration-log
+          path: integration.log
+
+  worker:
+    name: Worker tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          dotnet-version: "10.0.x"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+      - name: Start MySQL (docker-compose.yml, as locally)
+        run: docker compose up -d --wait
+      # Jest's global setup builds the test schema with `dotnet ef migrations script`.
+      - name: Restore dotnet-ef
+        run: dotnet tool restore
+      - name: Install
+        working-directory: worker
+        run: npm ci --no-audit --no-fund
+      - name: Build
+        working-directory: worker
+        run: npm run build
+      - name: Test
+        working-directory: worker
+        run: npm test > ../worker.log 2>&1 || { tail -80 ../worker.log; exit 1; }
+      - name: Summary
+        if: always()
+        run: grep -E "^Tests:" worker.log || true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: failure()
+        with:
+          name: worker-log
+          path: worker.log
+
+  real-aws:
+    name: Real-AWS tests
+    if: github.ref == 'refs/heads/main'
+    needs: [csharp-unit, csharp-integration, worker]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write # to assume the OIDC role
+    env:
+      AWS_REGION: us-east-2
+      BOOKING_TEST_SQS_QUEUE_URL: ${{ vars.BOOKING_TEST_SQS_QUEUE_URL }}
+      BOOKING_TEST_SES_FROM: ${{ vars.BOOKING_TEST_SES_FROM }}
+      BOOKING_TEST_SES_TO: success@simulator.amazonses.com # SES mailbox simulator: accepted and dropped
+      BOOKING_TEST_SCHEDULER_GROUP: ${{ vars.BOOKING_TEST_SCHEDULER_GROUP }}
+      BOOKING_TEST_SCHEDULER_TARGET_ARN: ${{ vars.BOOKING_TEST_SCHEDULER_TARGET_ARN }}
+      BOOKING_TEST_SCHEDULER_ROLE_ARN: ${{ vars.BOOKING_TEST_SCHEDULER_ROLE_ARN }}
+      BOOKING_TEST_SCHEDULER_DLQ_ARN: ${{ vars.BOOKING_TEST_SCHEDULER_DLQ_ARN }}
+    steps:
+      # The repository variables come from `terraform -chdir=infra output ci_repository_variables` (docs/runbook.md);
+      # without them (e.g. the environment is torn down) the job skips its steps with a notice instead of failing.
+      - name: Check configuration
+        id: config
+        env:
+          ROLE: ${{ vars.AWS_CI_ROLE_ARN }}
+        run: |
+          missing=""
+          for name in ROLE BOOKING_TEST_SQS_QUEUE_URL BOOKING_TEST_SES_FROM BOOKING_TEST_SCHEDULER_GROUP \
+            BOOKING_TEST_SCHEDULER_TARGET_ARN BOOKING_TEST_SCHEDULER_ROLE_ARN BOOKING_TEST_SCHEDULER_DLQ_ARN; do
+            [ -n "${!name}" ] || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::notice::Real-AWS tests skipped: repository variables not set:$missing (see docs/runbook.md, CI)."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        if: steps.config.outputs.configured == 'true'
+      - uses: aws-actions/configure-aws-credentials@b47578312673ae6fa5b5096b330d9fbac3d116df # v4.2.1
+        if: steps.config.outputs.configured == 'true'
+        with:
+          role-to-assume: ${{ vars.AWS_CI_ROLE_ARN }}
+          aws-region: us-east-2
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        if: steps.config.outputs.configured == 'true'
+        with:
+          dotnet-version: "10.0.x"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        if: steps.config.outputs.configured == 'true'
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+      # The worker's Jest global setup needs MySQL and dotnet-ef even for these two files.
+      - name: Start MySQL
+        if: steps.config.outputs.configured == 'true'
+        run: docker compose up -d --wait
+      - name: C# real-AWS test (SQS)
+        if: steps.config.outputs.configured == 'true'
+        run: |
+          dotnet test tests/BookingPlatform.IntegrationTests --filter Category=RealAws > real-cs.log 2>&1 || { cat real-cs.log; exit 1; }
+          grep -E "Passed!|Failed!" real-cs.log
+          # A skipped test would also "pass": require the one real-AWS test to have run.
+          grep -qE "Passed: +1, Skipped: +0" real-cs.log || { echo "::error::the real-AWS SQS test did not run"; exit 1; }
+      - name: Worker real-AWS tests (SES, Scheduler)
+        if: steps.config.outputs.configured == 'true'
+        working-directory: worker
+        run: |
+          dotnet tool restore
+          npm ci --no-audit --no-fund
+          npx jest src/email.test.ts src/scheduler.test.ts > ../real-worker.log 2>&1 || { cat ../real-worker.log; exit 1; }
+          grep -E "^Tests:" ../real-worker.log
+          ! grep -qE "^Tests:.*skipped" ../real-worker.log || { echo "::error::a worker real-AWS test was skipped"; exit 1; }

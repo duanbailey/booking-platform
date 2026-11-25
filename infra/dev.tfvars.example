@@ -9,3 +9,6 @@ alarm_email = "you@example.com"
 
 # Invite and recovery links. Empty: the API's CloudFront URL (there is no frontend yet).
 app_base_url = ""
+
+# The GitHub repository (owner/name) whose main branch may run the real-AWS tests in CI. Empty: no CI role.
+github_repository = "owner/booking-platform"

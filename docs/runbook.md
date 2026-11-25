@@ -147,6 +147,18 @@ BOOKING_TEST_SCHEDULER_ROLE_ARN=... BOOKING_TEST_SCHEDULER_DLQ_ARN=... \
 
 A normal run skips these (two in the worker, one in C#); check the summary shows them passed, not skipped. The worker run needs the local test MySQL (`docker compose up -d --wait`), because Jest's global setup builds a schema.
 
+## CI
+
+GitHub Actions ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml), T27d) runs the C# unit, C# integration and worker suites on every push, and the real-AWS tests on pushes to `main` and on manual runs (Actions > CI > Run workflow, branch `main`). The real-AWS job assumes the role `booking-platform-dev-ci` through GitHub's OIDC provider (`infra/ci.tf`); only `refs/heads/main` of `github_repository` (set in `dev.tfvars`) may assume it, and it may only use the SQS test queue, send from the SES sender, and manage schedules in the reminders group. Its SES test mails the SES mailbox simulator, so no real email is sent.
+
+The job reads repository variables (Settings > Secrets and variables > Actions > Variables), none of them secret. Enter them once, and again after a rebuild (the ARNs and queue URL keep their names, but the OIDC provider and role are recreated):
+
+```bash
+terraform -chdir=infra output ci_repository_variables
+```
+
+Without them (e.g. after a teardown) the job skips its steps with a notice instead of failing. Commit flow: push the task branch, wait for CI to pass on it, then fast-forward `main` and push it; the real-AWS job then runs on `main`.
+
 ## Tearing down
 
 ```bash

@@ -72,3 +72,9 @@ variable "api_desired_count" {
   type        = number
   default     = 1
 }
+
+variable "github_repository" {
+  description = "GitHub repository (owner/name) whose main branch may assume the CI role for the real-AWS tests (infra/ci.tf). Empty: no CI role."
+  type        = string
+  default     = ""
+}
