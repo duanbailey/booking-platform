@@ -61,6 +61,34 @@ jobs:
           name: integration-log
           path: integration.log
 
+  # T28: the slot query p95 target (specs/07-nfr.md), in its own job so a slow runner or a regression shows here and
+  # not as a flaky integration suite. The test seeds ~100k bookings (about 10 s) and prints p50, p95 and max.
+  performance:
+    name: Slot query performance
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json # SDK 10; the runner image also has newer SDKs
+      - name: Start MySQL (docker-compose.yml, as locally)
+        run: docker compose up -d --wait
+      - name: Test
+        env:
+          BOOKING_PERF_TEST: "1"
+        run: |
+          dotnet test tests/BookingPlatform.IntegrationTests --filter Category=Performance \
+            --logger "console;verbosity=detailed" > performance.log 2>&1 || { grep -E "Seeded|p50|p95|Assert|Failed" performance.log; tail -40 performance.log; exit 1; }
+          grep -E "Seeded|p50" performance.log
+          # A skipped test would also "pass": require it to have run.
+          grep -qE "Passed: +1" performance.log || { echo "::error::the performance test did not run"; exit 1; }
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: performance-log
+          path: performance.log
+
   worker:
     name: Worker tests
     runs-on: ubuntu-latest
