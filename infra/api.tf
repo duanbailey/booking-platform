@@ -90,7 +90,13 @@ resource "aws_iam_role_policy" "api_task_sqs" {
 # ------------------------------------------------------------------------------------------- Task definitions
 
 locals {
-  connection_string = "Server=${local.db_host};Port=3306;Database=${local.db_name};"
+  # Trusted proxies for the client IP (rate limits). The API's peer is the load balancer (in the VPC); the hop before
+  # it is CloudFront, which reaches the load balancer from its public origin-facing addresses (the prefix list the
+  # load balancer's security group admits), not from inside the VPC. With only the VPC trusted, every client looked
+  # like a CloudFront address and shared one rate-limit bucket (T27c, decided 2026-11-25). Sorted for stable plans;
+  # each apply picks up AWS's current list.
+  trusted_proxy_networks = concat([var.vpc_cidr], sort([for e in data.aws_ec2_managed_prefix_list.cloudfront.entries : e.cidr]))
+  connection_string      = "Server=${local.db_host};Port=3306;Database=${local.db_name};"
   log_options = {
     awslogs-group         = aws_cloudwatch_log_group.api.name
     awslogs-region        = var.region
@@ -115,16 +121,17 @@ resource "aws_ecs_task_definition" "api" {
     image        = var.api_image
     essential    = true
     portMappings = [{ containerPort = 8080, protocol = "tcp" }]
-    environment = [
+    environment = concat([
       { name = "ASPNETCORE_ENVIRONMENT", value = "Production" },
       { name = "ConnectionStrings__BookingDb", value = local.connection_string },
       { name = "Database__User", value = "booking_api" },
       { name = "Outbox__QueueUrl", value = aws_sqs_queue.events.url },
       { name = "AWS_REGION", value = var.region },
       { name = "Https__Redirect", value = "false" },
-      { name = "ForwardedHeaders__KnownNetworks__0", value = var.vpc_cidr },
       { name = "ForwardedHeaders__ForwardLimit", value = "2" },
-    ]
+      ], [
+      for i, cidr in local.trusted_proxy_networks : { name = "ForwardedHeaders__KnownNetworks__${i}", value = cidr }
+    ])
     secrets = [
       { name = "Database__Password", valueFrom = aws_secretsmanager_secret.db_api.arn },
       { name = "Jwt__SigningKey", valueFrom = aws_secretsmanager_secret.jwt_signing_key.arn },

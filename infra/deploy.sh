@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# One-command deploy (T27b, decided 2026-11-24). Runs in Git Bash, macOS/Linux and CI.
+# One-command deploy (T27b, decided 2026-11-24). Runs in Git Bash, macOS/Linux and CI. Operating the deployed
+# environment (admin tasks, alarms, secrets, teardown) is in docs/runbook.md.
 #
 #   infra/deploy.sh bootstrap   Once per account: the state bucket and the API's ECR repository (infra/bootstrap).
 #   infra/deploy.sh plan        Build the worker package and show what a deploy would change (no image push).
@@ -160,7 +161,7 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
     bootstrap) cmd_bootstrap ;;
     plan) cmd_plan ;;
     deploy) cmd_deploy ;;
-    -h | --help | help) sed -n '2,20p' "${BASH_SOURCE[0]}" ;;
+    -h | --help | help) sed -n '2,18p' "${BASH_SOURCE[0]}" ;;
     *) die "unknown command '$1' (bootstrap, plan or deploy)" ;;
   esac
 fi

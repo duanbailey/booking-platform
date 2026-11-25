@@ -34,8 +34,13 @@ output "api_log_group" {
 }
 
 output "events_queue_url" {
-  description = "For the real-AWS SQS test (BOOKING_TEST_SQS_QUEUE_URL)."
+  description = "The worker's queue. Not for the real-AWS SQS test: the worker would consume its messages."
   value       = aws_sqs_queue.events.url
+}
+
+output "sqs_test_queue_url" {
+  description = "For the real-AWS SQS test (BOOKING_TEST_SQS_QUEUE_URL): a queue with no consumer."
+  value       = aws_sqs_queue.sqs_test.url
 }
 
 output "reminder_settings" {

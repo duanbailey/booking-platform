@@ -1,59 +1,70 @@
 # Architecture
 
-How the booking platform's parts fit together on AWS. The sources are [specs/08-architecture.md](../specs/08-architecture.md), [specs/06-events.md](../specs/06-events.md), [specs/07-nfr.md](../specs/07-nfr.md) and ADRs [0002](adr/0002-booking-concurrency-row-lock.md), [0007](adr/0007-aws-testing-with-fakes.md), [0008](adr/0008-outbox-relay-in-api.md) and [0009](adr/0009-terraform-for-infrastructure.md). Dashed boxes are planned and not built yet; the task that builds each is in [plan/tasks.md](../plan/tasks.md). The AWS services themselves (queue, SES, Scheduler and the rest) are provisioned in T27; the code that talks to them sits behind interfaces with fakes (ADR 0007). Updated 2026-11-24 (T1-T26 built).
+How the booking platform's parts fit together on AWS. The sources are [specs/08-architecture.md](../specs/08-architecture.md), [specs/06-events.md](../specs/06-events.md), [specs/07-nfr.md](../specs/07-nfr.md) and ADRs [0002](adr/0002-booking-concurrency-row-lock.md), [0007](adr/0007-aws-testing-with-fakes.md), [0008](adr/0008-outbox-relay-in-api.md) and [0009](adr/0009-terraform-for-infrastructure.md). Everything shown is built and deployed (dev environment in us-east-2, Terraform in [`infra/`](../infra)); operating it is in the [runbook](runbook.md). Updated 2026-11-25 (T27c, first deployment).
 
 ## Components
 
 ```mermaid
 flowchart LR
     client["Clients<br/>(customers, staff, owners, admins)"]
-    operator["Operator"]
+    operator["Operator<br/>infra/deploy.sh, admin tasks"]
 
-    subgraph aws["AWS (Terraform, ADR 0009)"]
-        alb["Load balancer<br/>trusted X-Forwarded-For"]
+    subgraph aws["AWS us-east-2 (Terraform, ADR 0009)"]
+        cdn["CloudFront<br/>*.cloudfront.net HTTPS,<br/>no caching, HTTP to HTTPS"]
 
-        subgraph ecs["ECS Fargate"]
-            api["C# Web API<br/>REST /v1, JWT auth,<br/>rate limits, staff row locks"]
-            relay["Outbox relay<br/>background service in the API<br/>(ADR 0008, built in T21)"]
-            cli["Admin CLI<br/>one-off task, same image<br/>admin grant | revoke | list"]
+        subgraph vpc["VPC, two Availability Zones"]
+            subgraph private["Private subnets"]
+                alb["Internal load balancer<br/>reached only through the<br/>CloudFront VPC origin"]
+
+                subgraph ecs["ECS Fargate"]
+                    api["C# Web API<br/>REST /v1, JWT auth,<br/>rate limits per client IP,<br/>staff row locks"]
+                    relay["Outbox relay<br/>background service in the API<br/>(ADR 0008)"]
+                    oneoff["One-off tasks, same image<br/>db migrate | admin grant, revoke, list"]
+                end
+
+                db[("RDS MySQL 8.4<br/>users booking_api (data only),<br/>booking_worker (worker-grants.sql)")]
+                worker["Node worker<br/>Lambda, TypeScript,<br/>booking_worker user"]
+            end
+            nat["NAT gateway<br/>(public subnet)"]
         end
 
-        db[("RDS MySQL<br/>bookings, staff, availability,<br/>outbox, notifications, ...")]
-        secrets["Secrets Manager<br/>DB credentials, JWT key"]
-
-        queue[["SQS FIFO queue<br/>message group = booking ID<br/>(user ID for account events)"]]
+        secrets["Secrets Manager<br/>DB passwords, JWT key,<br/>RDS-managed master password"]
+        queue[["SQS FIFO events queue<br/>group = booking ID<br/>(user ID for account events)"]]
         dlq[["FIFO dead-letter queue"]]
-
-        worker["Node worker<br/>Lambda, TypeScript<br/>(T23-T26), limited DB user<br/>(worker/db/worker-grants.sql)"]
-        ses["SES<br/>emails"]
+        ses["SES<br/>one verified sender, sandbox"]
         scheduler["EventBridge Scheduler<br/>24h and 1h reminders (R9)"]
-
-        logs["CloudWatch<br/>JSON logs with correlation IDs,<br/>DLQ-not-empty alarm"]
+        sdlq[["Reminders dead-letter queue"]]
+        logs["CloudWatch<br/>JSON logs, outbox-age metric (EMF),<br/>alarms to SNS email"]
     end
 
-    client -- "HTTPS" --> alb --> api
-    operator -- "run task" --> cli
+    client -- "HTTPS" --> cdn -- "HTTP, VPC origin" --> alb --> api
+    operator -- "run task" --> oneoff
     api -- "change + outbox row,<br/>one transaction" --> db
-    cli --> db
+    oneoff --> db
     relay -- "claim each group's earliest unpublished row<br/>by seq, FOR UPDATE SKIP LOCKED" --> db
     relay -- "publish, dedup ID = eventId" --> queue
-    queue -- "after max receives" --> dlq
-    queue -- "events" --> worker
+    queue -- "after 5 receives" --> dlq
+    queue -- "events, batches of 10" --> worker
     worker -- "idempotency, contact details,<br/>invite and reset token hashes" --> db
     worker -- "send" --> ses
     worker -- "create, move, delete<br/>reminder-{bookingId}-24h / -1h" --> scheduler
-    scheduler -- "ReminderDue at the due time<br/>group = booking ID (T25)" --> queue
-    api -. "reads" .-> secrets
-    worker -. "reads" .-> secrets
-    api -. "logs" .-> logs
+    scheduler -- "ReminderDue at the due time<br/>(content-based dedup)" --> queue
+    scheduler -- "undeliverable for 1 hour" --> sdlq
+    api -. "AWS calls via" .-> nat
+    worker -. "AWS calls via" .-> nat
+    api -. "reads at start" .-> secrets
+    worker -. "reads at start" .-> secrets
+    api -. "logs, metric" .-> logs
     worker -. "logs" .-> logs
     dlq -. "alarm" .-> logs
-
-    classDef planned stroke-dasharray: 5 5
-    class queue,dlq,ses,scheduler,alb,secrets,logs,cli planned
+    sdlq -. "alarm" .-> logs
 ```
 
-The admin CLI already exists as a command in the API binary (T6); only running it as an ECS task is planned (T27). The API, MySQL, the outbox table and the outbox relay run locally today (Docker Compose for MySQL); the relay publishes only when `Outbox:QueueUrl` is set (it is off in Development without one, and required everywhere else), and its SQS publisher is checked against a real queue by a tagged test once one exists. Everything AWS-specific is provisioned in T27.
+Network: the load balancer, API tasks, worker Lambda and database have no public addresses. CloudFront reaches the internal load balancer through a VPC origin, and the load balancer's security group admits only CloudFront's origin-facing prefix list. The API and the worker reach SQS, SES, Scheduler and Secrets Manager through one NAT gateway, and the database accepts connections only from the API's and the worker's security groups.
+
+Client IPs: the chain is viewer, CloudFront, load balancer, API. The API trusts the VPC range and CloudFront's origin-facing ranges for `X-Forwarded-For`, two hops back, so rate limits count per viewer and a forged header is ignored (checked on the first deployment, T27c).
+
+IAM, least privilege per role: the API task role may send to the events queue; the worker may send email from the verified sender, create, update and delete schedules in the reminders group, pass the Scheduler role, and read its database secret; the Scheduler role may send to the events queue; the one-off `db migrate` task's execution role may read the RDS master secret and the two users' passwords. Database users: `booking_api` has SELECT, INSERT, UPDATE and DELETE (no schema changes); `booking_worker` has exactly the column-level grants in [`worker/db/worker-grants.sql`](../worker/db/worker-grants.sql), which cannot read `password_hash`; both are created and kept in step by `db migrate` before each rollout.
 
 ## From a request to an email
 

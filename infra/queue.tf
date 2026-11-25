@@ -27,3 +27,13 @@ resource "aws_sqs_queue" "reminders_dlq" {
   name                      = "${local.name}-reminders-dlq"
   message_retention_seconds = 1209600
 }
+
+# A queue only the tagged real-AWS SQS test uses (BOOKING_TEST_SQS_QUEUE_URL, ADR 0007; decided 2026-11-25). It has
+# no consumer, unlike the events queue, whose worker would take the test's messages and retry them into the
+# dead-letter queue. Settings as the events queue, without the redrive; leftovers expire after an hour.
+resource "aws_sqs_queue" "sqs_test" {
+  name                        = "${local.name}-sqs-test.fifo"
+  fifo_queue                  = true
+  content_based_deduplication = true
+  message_retention_seconds   = 3600
+}

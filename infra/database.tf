@@ -1,7 +1,8 @@
 # RDS MySQL (T27b, decided 2026-11-24): MySQL 8.4 as in docker-compose.yml, db.t4g.micro, single AZ, 20 GB gp3,
-# encrypted, 7-day backups. Easy to destroy: no deletion protection and no final snapshot, so `terraform destroy`
-# removes the data. The master password is managed by RDS in Secrets Manager and never appears in state; only the
-# `db migrate` task uses it. The schema and the API's and worker's users are created by `db migrate` (T27a).
+# encrypted, 1-day backups (T27c: the account is on the AWS Free plan, which refuses longer retention). Easy to
+# destroy: no deletion protection and no final snapshot, so `terraform destroy` removes the data. The master password
+# is managed by RDS in Secrets Manager and never appears in state; only the `db migrate` task uses it. The schema and
+# the API's and worker's users are created by `db migrate` (T27a).
 
 resource "aws_db_subnet_group" "main" {
   name       = local.name
@@ -27,7 +28,7 @@ resource "aws_db_instance" "main" {
   publicly_accessible    = false
   multi_az               = false
 
-  backup_retention_period    = 7
+  backup_retention_period    = 1 # the AWS Free plan refuses more (T27c, decided 2026-11-25)
   auto_minor_version_upgrade = true
   deletion_protection        = false
   skip_final_snapshot        = true
