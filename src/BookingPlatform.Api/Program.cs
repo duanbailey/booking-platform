@@ -45,7 +45,24 @@ if (cliMode)
         o => o.LogToStandardErrorThreshold = LogLevel.Trace);
 }
 
-builder.Services.AddControllers()
+builder.Services.AddControllers(o =>
+    {
+        // T30: plain messages for missing values ("Is required."), never naming a C# property.
+        o.ModelMetadataDetailsProviders.Add(new BookingPlatform.Api.Validation.RequiredMessageProvider());
+        // MVC's binding messages ("The value 'abc' is not valid for Limit.") name the C# property and echo the input.
+        var messages = o.ModelBindingMessageProvider;
+        messages.SetMissingRequestBodyRequiredValueAccessor(() => ErrorResponses.RequiredMessage);
+        messages.SetMissingBindRequiredValueAccessor(_ => ErrorResponses.RequiredMessage);
+        messages.SetMissingKeyOrValueAccessor(() => ErrorResponses.RequiredMessage);
+        messages.SetAttemptedValueIsInvalidAccessor((_, _) => ErrorResponses.NotValidMessage);
+        messages.SetNonPropertyAttemptedValueIsInvalidAccessor(_ => ErrorResponses.NotValidMessage);
+        messages.SetUnknownValueIsInvalidAccessor(_ => ErrorResponses.NotValidMessage);
+        messages.SetNonPropertyUnknownValueIsInvalidAccessor(() => ErrorResponses.NotValidMessage);
+        messages.SetValueIsInvalidAccessor(_ => ErrorResponses.NotValidMessage);
+        messages.SetValueMustBeANumberAccessor(_ => ErrorResponses.NotValidMessage);
+        messages.SetNonPropertyValueMustBeANumberAccessor(() => ErrorResponses.NotValidMessage);
+        messages.SetValueMustNotBeNullAccessor(_ => ErrorResponses.NotValidMessage);
+    })
     .AddJsonOptions(o =>
     {
         ErrorResponses.Configure(o.JsonSerializerOptions);
@@ -59,6 +76,15 @@ builder.Services.AddControllers()
         // pages below give them the shared Error shape.
         o.SuppressMapClientErrors = true;
     });
+// T30: check a JSON body's syntax before the standard formatter reads it (SyntaxCheckingJsonInputFormatter).
+// Registered after AddControllers, so MVC's own setup has already added the formatter this replaces.
+builder.Services.AddOptions<Microsoft.AspNetCore.Mvc.MvcOptions>()
+    .Configure<IOptions<Microsoft.AspNetCore.Mvc.JsonOptions>, ILogger<Microsoft.AspNetCore.Mvc.Formatters.SystemTextJsonInputFormatter>>(
+        (mvc, json, logger) =>
+        {
+            var standard = mvc.InputFormatters.OfType<Microsoft.AspNetCore.Mvc.Formatters.SystemTextJsonInputFormatter>().Single();
+            mvc.InputFormatters[mvc.InputFormatters.IndexOf(standard)] = new SyntaxCheckingJsonInputFormatter(json.Value, logger);
+        });
 builder.Services.AddOpenApi();
 
 // ConnectionStrings:BookingDb, with Database:User and Database:Password overriding its credentials (T27a).

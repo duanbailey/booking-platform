@@ -40,24 +40,49 @@ public static class ErrorResponses
     public static Task WriteAsync(HttpContext context, ApiException exception) =>
         WriteAsync(context, exception.Status, exception.ToResponse());
 
+    /// <summary>The message for every missing required value: a field, a parameter or the body (T30).</summary>
+    public const string RequiredMessage = "Is required.";
+
+    /// <summary>The message for a value of the wrong type or one that can't be converted (T30).</summary>
+    public const string NotValidMessage = "Is not valid.";
+
     /// <summary>
     /// Replaces MVC's default validation response with 400 ValidationFailed whose
     /// details.fields maps each invalid field (camelCase, as in the JSON) to its first problem.
+    /// T30 (decided 2026-11-25): JSON that can't be parsed is the single entry "body"; a field
+    /// of the wrong type is reported alone, without the body parameter's own "required" error.
     /// </summary>
     public static IActionResult ValidationFailed(ActionContext context)
     {
+        var errors = context.ModelState
+            .Where(e => e.Value is { Errors.Count: > 0 })
+            .Select(e => (e.Key, Error: e.Value!.Errors[0]))
+            .ToList();
+        // With AllowInputFormatterExceptionMessages off, the JSON formatter records the serializer's own exception.
+        var bodyUnreadable = errors.Any(e => e.Error.Exception is JsonException);
+
         var fields = new SortedDictionary<string, string>(StringComparer.Ordinal);
-        foreach (var (key, entry) in context.ModelState)
+        if (errors.Any(e => e.Error.Exception is MalformedJsonException)) // SyntaxCheckingJsonInputFormatter
         {
-            var error = entry.Errors.FirstOrDefault();
-            if (error is null) continue;
-            var name = FieldName(key, context);
-            fields.TryAdd(name, string.IsNullOrWhiteSpace(error.ErrorMessage) ? "Is not valid." : error.ErrorMessage);
+            fields["body"] = "Is not valid JSON.";
+        }
+        else
+        {
+            foreach (var (key, error) in errors)
+            {
+                // A body that couldn't be read leaves the body parameter unbound, and MVC then reports the
+                // parameter itself as required; the field that broke the body is the only real problem.
+                if (bodyUnreadable && IsBodyParameter(key, context)) continue;
+                fields.TryAdd(FieldName(key, context), string.IsNullOrWhiteSpace(error.ErrorMessage) ? NotValidMessage : error.ErrorMessage);
+            }
         }
 
         var body = new ErrorResponse(ErrorCode.ValidationFailed, "The request is not valid.", null, new { fields });
         return new ObjectResult(body) { StatusCode = StatusCodes.Status400BadRequest, ContentTypes = { "application/json" } };
     }
+
+    private static bool IsBodyParameter(string key, ActionContext context) =>
+        context.ActionDescriptor.Parameters.Any(p => p.Name == key && p.BindingInfo?.BindingSource == BindingSource.Body);
 
     /// <summary>
     /// "$.items[0].Start" or "Items[0].Start" becomes "items[0].start". An error about the
@@ -67,9 +92,7 @@ public static class ErrorResponses
     private static string FieldName(string key, ActionContext context)
     {
         var path = key.StartsWith('$') ? key.TrimStart('$').TrimStart('.') : key;
-        var isBodyParameter = context.ActionDescriptor.Parameters.Any(p =>
-            p.Name == path && p.BindingInfo?.BindingSource == BindingSource.Body);
-        if (path.Length == 0 || isBodyParameter) return "body";
+        if (path.Length == 0 || IsBodyParameter(path, context)) return "body";
         return string.Join('.', path.Split('.').Select(s => s.Length == 0 ? s : char.ToLowerInvariant(s[0]) + s[1..]));
     }
 }

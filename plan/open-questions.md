@@ -4,7 +4,7 @@ Optional spec items that are still open. Decisions are recorded in `specs/`, `do
 
 ## Status
 
-Updated 2026-11-24. Since T3, each task's decisions go into the "Decided" list in `plan/tasks.md` (or `specs/` and an ADR), and progress is the ticked tasks there; this file is no longer a status page. Nothing here blocks a task: the only open items are the two optional wording suggestions under "Smaller items". The sections between, from the 2026-11-15 and 2026-11-16 reviews, are kept for reference (the 2026-11-15 review was skipped by the user).
+Updated 2026-11-24. Since T3, each task's decisions go into the "Decided" list in `plan/tasks.md` (or `specs/` and an ADR), and progress is the ticked tasks there; this file is no longer a status page. Nothing here blocks a task: the only open items are the two optional wording suggestions and the request body size limit (added 2026-11-25) under "Smaller items". The sections between, from the 2026-11-15 and 2026-11-16 reviews, are kept for reference (the 2026-11-15 review was skipped by the user).
 
 ## Schema choices to confirm (T2, 2026-11-16)
 
@@ -28,6 +28,7 @@ Made while settling the API outline:
 
 - **specs/08-architecture.md:** one wording suggestion, left for the owner to decide: "SQS plus a dead-letter queue, FIFO queue" reads as two queues (it is one FIFO queue, and its dead-letter queue must also be FIFO). (The "(or Lambda)" conflict was resolved by ADR 0008 on 2026-11-16.)
 - **specs/01-overview.md:** glossary terms are listed but not defined; typo "caldendar". Newer terms worth adding: cancellation window, minimum notice, advance-booking window, date exception, admin, invite.
+- **Request body size limit (raised in T30, 2026-11-25):** nothing caps a request body except Kestrel's default of 30 MB, and since T30 a JSON body is held in memory once to check its syntax. Real bodies are a few hundred bytes. A lower limit (e.g. 64 KB, answered with the existing 413 `RequestRejected`) would bound memory per request; it is a behaviour change, so it is for the owner to decide.
 
 ## Suggested order
 

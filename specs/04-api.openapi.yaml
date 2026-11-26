@@ -1840,7 +1840,16 @@ components:
             - `MinimumNotice`: `{ minNoticeMinutes }`
             - `CancellationWindowPassed`: `{ cancellationWindowHours }`
             - `RangeTooLong`: `{ maxDays: 30 }`
-            - `ValidationFailed`: `{ fields: { <name>: <problem> } }`
+            - `ValidationFailed`: `{ fields: { <name>: <problem> } }`. A body field
+              is named as in the request (camelCase, with a path for nested
+              values, e.g. `confirm.affectedBookingIds[0]`); a parameter or
+              header by its own name. A field of the wrong JSON type, or one
+              the body does not allow, is the only entry and says `Is not
+              valid.`, as does a parameter value that can't be converted
+              (e.g. `limit=abc`); a missing required value says `Is required.`. JSON that
+              cannot be parsed is the single entry `body`: `Is not valid
+              JSON.`; a missing or `null` body is `body`: `Is required.` (T30,
+              decided 2026-11-25).
           type: object
     AffectedBooking:
       type: object
