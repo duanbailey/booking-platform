@@ -336,6 +336,35 @@ public class IdempotencyKeyTests(FrozenClockApiFixture fixture) : IClassFixture<
         });
     }
 
+    [Fact]
+    public async Task An_expired_key_is_deleted_in_its_own_transaction_before_the_booking_commits()
+    {
+        // T31 review (2026-11-26): the cleanup may delete an expired row at any moment, and a DELETE inside the
+        // booking's REPEATABLE READ transaction that then matches no row takes a gap lock (deadlock risk, T29).
+        // So the expired row is deleted in its own READ COMMITTED transaction: it is gone while the booking
+        // still waits (here at its insert, whose foreign key needs the held service row).
+        var shop = await ShopAsync();
+        var key = NewKey();
+        var keyRow = new { user = shop.CustomerId, key };
+        await CreatedIdAsync(await Book(shop.CustomerId, Body(shop, shop.StaffA, On(Day, 9)), key));
+        await fixture.Sql.ExecuteAsync(
+            "UPDATE idempotency_keys SET created_at = @expired WHERE user_id = @user AND idempotency_key = @key",
+            new { expired = fixture.Now.AddHours(-24), user = shop.CustomerId, key });
+        Task<HttpResponseMessage> second;
+
+        await using (var held = await fixture.Sql.LockRowAsync("services", shop.ServiceId))
+        {
+            second = Book(shop.CustomerId, Body(shop, shop.StaffA, On(Day, 11)), key);
+            await fixture.Sql.WaitForLockWaitsAsync("services", 1);
+            Assert.False(second.IsCompleted);
+            Assert.Equal(0, await CountAsync("SELECT COUNT(*) FROM idempotency_keys WHERE user_id = @user AND idempotency_key = @key", keyRow));
+        }
+
+        var id = await CreatedIdAsync(await second);
+        Assert.Equal(id, (Guid)(await fixture.Sql.ScalarAsync(
+            "SELECT booking_id FROM idempotency_keys WHERE user_id = @user AND idempotency_key = @key", keyRow))!);
+    }
+
     // ------------------------------------------------------------ Invalid keys
 
     public static TheoryData<string[]> InvalidKeys => new()

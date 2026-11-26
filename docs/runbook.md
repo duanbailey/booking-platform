@@ -52,7 +52,7 @@ The worker Lambda is updated by the same applies (its package comes from the sam
 
 ### First deployment notes
 
-On a brand-new environment the API service starts before `db migrate` has created its database user, so the outbox relay logs a stream of errors (once a second) until migrate finishes, and the relay-error alarm may fire once and clear. The first deployment saw this for about 3.5 minutes.
+On a brand-new environment the API service starts before `db migrate` has created its database user, so the outbox relay logs a stream of errors (once a second) until migrate finishes, and the relay-error alarm may fire once and clear. The first deployment saw this for about 3.5 minutes. The cleanup's startup run fails the same way and logs one error; it runs again an hour later (see Cleanup).
 
 AWS emails the sender address a verification link and the alarm address an SNS subscription confirmation on the first apply. Nothing is sent until the sender is verified; alarms reach nobody until the subscription is confirmed. Check with:
 
@@ -110,6 +110,12 @@ Known worker failure modes that end in the DLQ:
 
 - A business or user time zone that NodaTime (the API) accepts but the Lambda's Node ICU data doesn't know fails formatting (T24). Rare (newly added zones); the fix is a Node runtime with newer ICU data.
 - A permanent SES rejection (an unverified recipient in the sandbox) means no confirmation and no reminders for that booking (T25).
+
+## Cleanup
+
+Each API task runs a cleanup once at startup and then hourly (T31): it deletes outbox rows published more than 30 days ago and idempotency keys more than 24 hours old, 1000 rows per statement. A run that deleted something logs `Cleanup deleted ...` with the counts. A failed run logs an error (category `BookingPlatform.Api.Maintenance.DataCleanupService`) and is tried again an hour later; no alarm watches it, so if the outbox keeps growing, search the API log for that category. Settings: `Cleanup:IntervalMinutes` (default 60, 1-1440), `Cleanup:BatchSize` (default 1000, 1-10000), and `Cleanup:Enabled` (default true; tests turn it off). A value out of range stops the API at startup, naming the setting.
+
+On a brand-new environment the startup run fails, because the API starts before `db migrate` has created its database user (see First deployment notes): it logs one cleanup error, and the next run an hour later succeeds. Nothing to do.
 
 ## Secrets
 

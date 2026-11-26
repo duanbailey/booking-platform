@@ -3,6 +3,7 @@ using BookingPlatform.Api.Auth;
 using BookingPlatform.Api.Bookings;
 using BookingPlatform.Api.Data;
 using BookingPlatform.Api.Errors;
+using BookingPlatform.Api.Maintenance;
 using BookingPlatform.Api.Events;
 using BookingPlatform.Api.Slots;
 using BookingPlatform.Api.Validation;
@@ -36,7 +37,8 @@ public sealed record BookingResponse(
 [ApiController]
 [Route("v1")]
 public sealed class BookingsController(
-    BookingDbContext db, BookingScheduler scheduler, BusinessZones zones, OutboxWriter outbox, TimeProvider time) : ControllerBase
+    BookingDbContext db, BookingScheduler scheduler, BusinessZones zones, OutboxWriter outbox, TimeProvider time,
+    IServiceScopeFactory scopes) : ControllerBase
 {
     private sealed record Target(Service Service, Business Business, Staff Staff);
 
@@ -199,11 +201,10 @@ public sealed class BookingsController(
             if (keyExpired)
             {
                 // Replaces the expired row. Only while it is still expired, so a simultaneous request's new row
-                // stays and ours fails on the primary key. Run only when the row exists: a delete that matches
-                // no row would take a gap lock and could deadlock other callers' inserts.
-                var cutoff = now - IdempotencyKeys.Lifetime;
-                await db.Database.ExecuteSqlAsync(
-                    $"DELETE FROM idempotency_keys WHERE user_id = {callerId} AND idempotency_key = {idempotency.Key} AND created_at <= {cutoff}", ct);
+                // stays and ours fails on the primary key. Deleted in its own READ COMMITTED transaction, not this
+                // one: the cleanup (T31) may have deleted it since it was read, and a delete here that matches no
+                // row would take a gap lock and could deadlock other callers' inserts (T31 review, 2026-11-26).
+                await DataCleanup.DeleteExpiredKeyAsync(scopes, callerId, idempotency.Key, now, ct);
             }
             db.IdempotencyKeys.Add(new IdempotencyRecord
             {

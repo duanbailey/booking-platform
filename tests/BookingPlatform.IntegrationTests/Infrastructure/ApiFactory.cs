@@ -29,6 +29,7 @@ public sealed class ApiFactory(
         builder.UseSetting("Jwt:SigningKey", "integration-test-signing-key-at-least-32-bytes");
         builder.UseSetting("RateLimiting:Auth:PermitLimit", authPermitLimit.ToString());
         builder.UseSetting("RateLimiting:Refresh:PermitLimit", refreshPermitLimit.ToString());
+        builder.UseSetting("Cleanup:Enabled", "false"); // T31: off, so it can't delete rows a test set up; tests turn it on
         builder.ConfigureServices(services =>
         {
             services.AddControllers().AddApplicationPart(typeof(AccessProbeController).Assembly);

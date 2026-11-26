@@ -107,7 +107,7 @@ public class AdminProcessTests(ApiFixture fixture) : IClassFixture<ApiFixture>
     }
 
     /// <summary>The API build matching this test build (same configuration and framework).</summary>
-    private static string FindApiDll()
+    internal static string FindApiDll()
     {
         // .../tests/BookingPlatform.IntegrationTests/bin/<Configuration>/<tfm>/
         var testBin = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar));

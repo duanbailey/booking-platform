@@ -313,6 +313,7 @@ public class BookingDbContext(DbContextOptions<BookingDbContext> options) : DbCo
             e.Property(x => x.RequestHash).HasMaxLength(64); // SHA-256, hex
             e.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne<Booking>().WithMany().HasForeignKey(x => x.BookingId).OnDelete(DeleteBehavior.Restrict);
+            e.HasIndex(x => x.CreatedAt); // T31: the cleanup deletes by created_at
         });
 
         modelBuilder.Entity<Notification>(e =>

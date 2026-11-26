@@ -101,7 +101,7 @@ sequenceDiagram
     Q->>W: ReminderDue: email the customer unless stale (cancelled, moved or started)
 ```
 
-Delivery is at least once: a crash between publishing and setting `published_at` republishes the row, and the worker's `notifications` table, unique on (event, recipient), stops a second email ([ADR 0008](adr/0008-outbox-relay-in-api.md)). No network call happens inside the transaction that holds the staff lock. Each message group is published in `outbox.seq` order, and a row that fails is retried with backoff (1 s doubling to 60 s), holding back only its own group (decided 2026-11-23).
+Delivery is at least once: a crash between publishing and setting `published_at` republishes the row, and the worker's `notifications` table, unique on (event, recipient), stops a second email ([ADR 0008](adr/0008-outbox-relay-in-api.md)). No network call happens inside the transaction that holds the staff lock. Each message group is published in `outbox.seq` order, and a row that fails is retried with backoff (1 s doubling to 60 s), holding back only its own group (decided 2026-11-23). A cleanup service in the API deletes outbox rows published more than 30 days ago and expired idempotency keys, once at startup and then hourly (T31, decided 2026-11-26).
 
 ## Testing seams
 

@@ -340,6 +340,8 @@ namespace BookingPlatform.Api.Data.Migrations
 
                     b.HasIndex("BookingId");
 
+                    b.HasIndex("CreatedAt");
+
                     b.ToTable("idempotency_keys", (string)null);
                 });
 

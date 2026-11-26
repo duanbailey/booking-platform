@@ -448,6 +448,18 @@ public class SchemaTests(TestDatabase database) : IClassFixture<TestDatabase>
     }
 
     [Fact]
+    public async Task Idempotency_keys_have_an_index_for_the_cleanup()
+    {
+        // T31: the cleanup deletes by created_at; the primary key starts with user_id, so without this index the
+        // delete would scan the table.
+        var columns = await _sql.ScalarAsync(
+            "SELECT GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX) FROM information_schema.STATISTICS " +
+            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'idempotency_keys' " +
+            "GROUP BY INDEX_NAME HAVING GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX) = 'created_at'");
+        Assert.Equal("created_at", columns);
+    }
+
+    [Fact]
     public async Task Services_have_an_index_for_the_list_order()
     {
         // T9: GET /v1/businesses/{id}/services filters by business and orders by (name, id).
