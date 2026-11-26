@@ -8,11 +8,11 @@ How to deploy, operate and tear down the dev environment on AWS.
 
 | | |
 |---|---|
-| Account, region | 269738326582, us-east-2 (AWS profile `booking-dev`, IAM user `booking-deployer`) |
+| Account, region | the dev account (`aws sts get-caller-identity --query Account --output text`), us-east-2 (AWS profile `booking-dev`, IAM user `booking-deployer`) |
 | API | `terraform -chdir=infra output -raw api_url` (CloudFront, `https://<id>.cloudfront.net`); `GET /health` answers `{"status":"ok"}` without touching the database |
 | Names | everything is prefixed `booking-platform-dev` (cluster, service, queues, Lambda, alarms) |
 | Logs | API and one-off tasks: CloudWatch log group `/booking-platform/dev/api` (stream prefixes `api`, `migrate`); worker: `/aws/lambda/booking-platform-dev-worker` |
-| State | main stack in S3 (`booking-platform-tfstate-269738326582-us-east-2`, native locking); the bootstrap stack's state is the local, git-ignored `infra/bootstrap/terraform.tfstate`: keep it |
+| State | main stack in S3 (`booking-platform-tfstate-<account-id>-us-east-2`, from the bootstrap output `state_bucket`; native locking); the bootstrap stack's state is the local, git-ignored `infra/bootstrap/terraform.tfstate`: keep it |
 | Cost | about $75-80 a month while it runs; the NAT gateway, RDS, the load balancer and Fargate are most of it |
 
 The account is on the **AWS Free plan**. It caps RDS backup retention (so backups are kept 1 day, not 7), and AWS closes a Free plan account when its credits run out or after 6 months unless it is upgraded to a paid plan in the Billing console. Check the remaining credits in Billing now and then.
