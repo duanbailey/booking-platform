@@ -103,14 +103,14 @@ public class AuthRateLimitTests : IClassFixture<TestDatabase>, IDisposable
     {
         // Many users behind one IP refresh every 15 minutes; that must not block their logins.
         var client = _api.ClientFrom("203.0.113.21");
-        for (var i = 0; i < 3; i++) await client.PostJsonAsync("/v1/auth/refresh", new { refreshToken = "x" });
-        for (var i = 0; i < 2; i++) await client.PostJsonAsync("/v1/auth/logout", new { refreshToken = "x" });
+        for (var i = 0; i < 3; i++) await client.PostAsync("/v1/auth/refresh", null);
+        for (var i = 0; i < 2; i++) await client.PostAsync("/v1/auth/logout", null);
 
         // Login still has its whole budget...
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.PostJsonAsync("/v1/auth/login", Credentials)).StatusCode);
 
         // ...and the 6th refresh-or-logout is over the refresh limit of 5.
-        await Json.ErrorAsync(await client.PostJsonAsync("/v1/auth/refresh", new { refreshToken = "x" }),
+        await Json.ErrorAsync(await client.PostAsync("/v1/auth/refresh", null),
             HttpStatusCode.TooManyRequests, "RequestRejected");
     }
 

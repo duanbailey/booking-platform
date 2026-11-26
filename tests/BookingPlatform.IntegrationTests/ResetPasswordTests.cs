@@ -44,13 +44,13 @@ public class ResetPasswordTests(FrozenClockApiFixture fixture) : IClassFixture<F
     private async Task<(Guid UserId, string Email, string Token, Guid ResetId, string RefreshToken)> UserWithLinkAsync()
     {
         var email = ApiFixture.NewEmail();
-        var registered = await fixture.RegisterAsync(email);
+        var (_, registeredRefresh) = await fixture.RegisterWithRefreshAsync(email);
         var userId = Guid.Parse(Convert.ToString(await fixture.Sql.ScalarAsync(
             "SELECT id FROM users WHERE email = @email", new { email }))!);
         var token = NewToken();
         var resetId = await fixture.Sql.InsertPasswordResetAsync(userId, token, expiresAt: fixture.Now.AddHours(1),
             createdAt: fixture.Now.AddMinutes(-1));
-        return (userId, email, token, resetId, registered.GetProperty("refreshToken").GetString()!);
+        return (userId, email, token, resetId, registeredRefresh);
     }
 
     private async Task<(string? PasswordHash, long ActiveRefreshTokens)> StateAsync(Guid userId) =>
@@ -76,14 +76,14 @@ public class ResetPasswordTests(FrozenClockApiFixture fixture) : IClassFixture<F
     {
         var (userId, email, token, resetId, _) = await UserWithLinkAsync();
 
-        var tokens = await Json.ReadAsync(await Reset(token), HttpStatusCode.OK);
+        var response = await Reset(token);
+        var tokens = await Json.ReadAsync(response, HttpStatusCode.OK);
 
         Assert.Equal("Bearer", tokens.GetProperty("tokenType").GetString());
         var me = await Json.ReadAsync(
             await fixture.ClientWithToken(tokens.GetProperty("accessToken").GetString()!).GetAsync("/v1/me"), HttpStatusCode.OK);
         Assert.Equal(userId, me.GetProperty("id").GetGuid());
-        await Json.ReadAsync(await fixture.Api.CreateClient().PostJsonAsync("/v1/auth/refresh",
-            new { refreshToken = tokens.GetProperty("refreshToken").GetString() }), HttpStatusCode.OK);
+        await Json.ReadAsync(await fixture.Api.RefreshAsync(RefreshCookie.TokenFrom(response)), HttpStatusCode.OK);
 
         await Json.ReadAsync(await Login(email, NewPassword), HttpStatusCode.OK);
         await Json.ErrorAsync(await Login(email, ApiFixture.Password), HttpStatusCode.Unauthorized, "InvalidCredentials");
@@ -95,18 +95,17 @@ public class ResetPasswordTests(FrozenClockApiFixture fixture) : IClassFixture<F
     public async Task Reset_revokes_every_earlier_refresh_token_of_the_user()
     {
         var (userId, email, token, _, registeredRefresh) = await UserWithLinkAsync();
-        var secondLogin = await Json.ReadAsync(await Login(email, ApiFixture.Password), HttpStatusCode.OK);
+        var secondLogin = RefreshCookie.TokenFrom(await Login(email, ApiFixture.Password));
 
-        var tokens = await Json.ReadAsync(await Reset(token), HttpStatusCode.OK);
+        var newRefresh = RefreshCookie.TokenFrom(await Reset(token));
 
-        foreach (var old in new[] { registeredRefresh, secondLogin.GetProperty("refreshToken").GetString()! })
+        foreach (var old in new[] { registeredRefresh, secondLogin })
         {
-            await Json.ErrorAsync(await fixture.Api.CreateClient().PostJsonAsync("/v1/auth/refresh", new { refreshToken = old }),
-                HttpStatusCode.Unauthorized, "InvalidRefreshToken");
+            await Json.ErrorAsync(await fixture.Api.RefreshAsync(old), HttpStatusCode.Unauthorized, "InvalidRefreshToken");
         }
         Assert.Equal(2, await CountAsync(
             "SELECT COUNT(*) FROM refresh_tokens WHERE user_id = @userId AND revoked_at = @now AND token_hash <> @newHash",
-            new { userId, now = fixture.Now, newHash = Sql.TokenHash(tokens.GetProperty("refreshToken").GetString()!) }));
+            new { userId, now = fixture.Now, newHash = Sql.TokenHash(newRefresh) }));
         Assert.Equal(1, await ActiveRefreshTokensAsync(userId));
     }
 

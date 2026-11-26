@@ -166,14 +166,11 @@ public class LoginTests(ApiFixture fixture) : IClassFixture<ApiFixture>
         var email = ApiFixture.NewEmail();
         await fixture.RegisterAsync(email);
 
-        var phone = await Json.ReadAsync(await Login(email, ApiFixture.Password), HttpStatusCode.OK);
-        var laptop = await Json.ReadAsync(await Login(email, ApiFixture.Password), HttpStatusCode.OK);
+        var phone = RefreshCookie.TokenFrom(await Login(email, ApiFixture.Password));
+        var laptop = RefreshCookie.TokenFrom(await Login(email, ApiFixture.Password));
 
         // Logging out the phone leaves the laptop logged in (ADR 0010).
-        await fixture.Api.CreateClient().PostJsonAsync("/v1/auth/logout",
-            new { refreshToken = phone.GetProperty("refreshToken").GetString() });
-        var refresh = await fixture.Api.CreateClient().PostJsonAsync("/v1/auth/refresh",
-            new { refreshToken = laptop.GetProperty("refreshToken").GetString() });
-        Assert.Equal(HttpStatusCode.OK, refresh.StatusCode);
+        await fixture.Api.LogoutAsync(phone);
+        Assert.Equal(HttpStatusCode.OK, (await fixture.Api.RefreshAsync(laptop)).StatusCode);
     }
 }

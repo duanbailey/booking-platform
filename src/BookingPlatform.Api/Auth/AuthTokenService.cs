@@ -1,8 +1,13 @@
+using System.Text.Json.Serialization;
+
 namespace BookingPlatform.Api.Auth;
 
-/// <summary>The AuthToken schema in specs/04-api.openapi.yaml.</summary>
+/// <summary>
+/// The AuthToken schema in specs/04-api.openapi.yaml. The refresh token is never serialised: the controller puts it
+/// in the cookie (ADR 0013).
+/// </summary>
 public sealed record AuthTokenResponse(
-    string AccessToken, string TokenType, DateTime ExpiresAt, string RefreshToken, DateTime RefreshTokenExpiresAt);
+    string AccessToken, string TokenType, DateTime ExpiresAt, [property: JsonIgnore] string RefreshToken, DateTime RefreshTokenExpiresAt);
 
 /// <summary>Builds AuthToken responses from an access token and a refresh token (ADR 0010).</summary>
 public sealed class AuthTokenService(AccessTokenIssuer access, RefreshTokenService refresh)

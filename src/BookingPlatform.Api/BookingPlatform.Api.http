@@ -3,10 +3,15 @@
 # launch profile, and apply migrations once first: dotnet ef database update
 #
 # /v1/auth/ endpoints allow 10 requests per minute per IP (specs/07-nfr.md).
+#
+# The refresh token is only ever in the refresh_token cookie (ADR 0013): copy its value from the
+# Set-Cookie header of the login (or refresh) response into @refreshToken below. The requests send it
+# explicitly, because clients differ in keeping cookies, and some drop a Secure cookie over plain http.
 
 @BookingPlatform.Api_HostAddress = http://localhost:5107
 @email = ann@example.test
 @password = correct horse battery
+@refreshToken = paste-the-refresh_token-cookie-value-here
 
 ### OpenAPI document (Development only)
 GET {{BookingPlatform.Api_HostAddress}}/openapi/v1.json
@@ -23,7 +28,7 @@ Content-Type: application/json
   "timeZone": "Europe/London"
 }
 
-### Log in: the tokens are captured for the requests below
+### Log in: the access token is captured for the requests below; copy refresh_token from Set-Cookie into @refreshToken
 # @name login
 POST {{BookingPlatform.Api_HostAddress}}/v1/auth/login
 Content-Type: application/json
@@ -46,26 +51,19 @@ Content-Type: application/json
   "timeZone": "America/New_York"
 }
 
-### Refresh: rotates the refresh token (send the login's token twice to see reuse detection)
+### Refresh: rotates the refresh token; the new one is in Set-Cookie (send the same token twice to see
+### reuse detection: 401 InvalidRefreshToken, which also clears the cookie)
 # @name refresh
 POST {{BookingPlatform.Api_HostAddress}}/v1/auth/refresh
-Content-Type: application/json
-
-{
-  "refreshToken": "{{login.response.body.refreshToken}}"
-}
+Cookie: refresh_token={{refreshToken}}
 
 ### Profile with the refreshed access token
 GET {{BookingPlatform.Api_HostAddress}}/v1/me
 Authorization: Bearer {{refresh.response.body.accessToken}}
 
-### Log out: revokes every refresh token from this login (204)
+### Log out: revokes every refresh token from this login and clears the cookie (204); paste the newest token first
 POST {{BookingPlatform.Api_HostAddress}}/v1/auth/logout
-Content-Type: application/json
-
-{
-  "refreshToken": "{{refresh.response.body.refreshToken}}"
-}
+Cookie: refresh_token={{refreshToken}}
 
 ### Admin creates an owner and their business (T6). The logged-in user must be an admin first:
 ###   dotnet src/BookingPlatform.Api/bin/Debug/net10.0/BookingPlatform.Api.dll admin grant <email> [--granted-by <admin email>]

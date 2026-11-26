@@ -39,6 +39,14 @@ public class ApiFixture : IAsyncLifetime
         return await Json.ReadAsync(response, HttpStatusCode.Created);
     }
 
+    /// <summary>Signs up and returns the AuthToken body and the refresh token from its cookie (ADR 0013).</summary>
+    public async Task<(JsonElement Body, string RefreshToken)> RegisterWithRefreshAsync(string? email = null, string password = Password)
+    {
+        var response = await Api.CreateClient().PostJsonAsync("/v1/auth/register",
+            new { name = "Ann Example", email = email ?? NewEmail(), password, timeZone = "Europe/London" });
+        return (await Json.ReadAsync(response, HttpStatusCode.Created), RefreshCookie.TokenFrom(response));
+    }
+
     public HttpClient ClientWithToken(string accessToken)
     {
         var client = Api.CreateClient();

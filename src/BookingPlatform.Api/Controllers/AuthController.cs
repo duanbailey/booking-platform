@@ -19,8 +19,6 @@ public sealed record RegisterRequest(
 
 public sealed record LoginRequest([Required] string Email, [Required] string Password);
 
-public sealed record RefreshTokenRequest([Required] string RefreshToken);
-
 public sealed record AcceptInviteRequest(
     [Required(AllowEmptyStrings = false)] string Token,
     [Required, StringLength(128, MinimumLength = 8)] string Password);
@@ -38,7 +36,8 @@ public sealed record ChangePasswordRequest(
 
 /// <summary>
 /// Sign-up, login, accepting an invite, password recovery and change, refresh and logout
-/// (specs/04-api.openapi.yaml, ADR 0010). Every action is rate limited per client IP
+/// (specs/04-api.openapi.yaml, ADR 0010). The refresh token travels only in the refresh_token cookie (ADR 0013):
+/// every response that starts or renews a login sets it, refresh and logout read it and take no body. Every action is rate limited per client IP
 /// (specs/07-nfr.md); refresh and logout use their own, looser limit, since every logged-in
 /// client refreshes every 15 minutes. Every action except change-password is anonymous; each
 /// says so itself, because [AllowAnonymous] on the class would override [Authorize].
@@ -83,7 +82,7 @@ public sealed class AuthController(
         var body = await tokens.StartLoginAsync(user.Id, ct);
         await transaction.CommitAsync(ct);
 
-        return StatusCode(StatusCodes.Status201Created, body);
+        return LoggedIn(body, StatusCodes.Status201Created);
     }
 
     /// <summary>
@@ -116,7 +115,7 @@ public sealed class AuthController(
         }
         var body = await tokens.StartLoginAsync(user!.Id, ct);
         await transaction.CommitAsync(ct);
-        return Ok(body);
+        return LoggedIn(body);
     }
 
     /// <summary>
@@ -126,7 +125,7 @@ public sealed class AuthController(
     [HttpPost("accept-invite")]
     [AllowAnonymous]
     public async Task<IActionResult> AcceptInvite(AcceptInviteRequest request, CancellationToken ct) =>
-        Ok(await invites.AcceptAsync(request.Token, request.Password, ct));
+        LoggedIn(await invites.AcceptAsync(request.Token, request.Password, ct));
 
     /// <summary>
     /// Story "User can recover a forgotten password": always 202 with no body, whether or not
@@ -144,27 +143,61 @@ public sealed class AuthController(
     [HttpPost("reset-password")]
     [AllowAnonymous]
     public async Task<IActionResult> ResetPassword(ResetPasswordRequest request, CancellationToken ct) =>
-        Ok(await recovery.ResetAsync(request.Token, request.Password, ct));
+        LoggedIn(await recovery.ResetAsync(request.Token, request.Password, ct));
 
     /// <summary>Story "User can change their password": new tokens for the caller; other logins are revoked.</summary>
     [HttpPost("change-password")]
     [Authorize]
     public async Task<IActionResult> ChangePassword(ChangePasswordRequest request, CancellationToken ct) =>
-        Ok(await recovery.ChangeAsync(User.GetUserId(), request.CurrentPassword, request.NewPassword, ct));
+        LoggedIn(await recovery.ChangeAsync(User.GetUserId(), request.CurrentPassword, request.NewPassword, ct));
 
+    /// <summary>
+    /// Rotates the token in the cookie (ADR 0010). Any body is ignored. A refusal (no cookie, or an unknown, expired,
+    /// used or revoked token) is 401 InvalidRefreshToken; when the request carried a cookie, the 401 also clears it
+    /// (decided 2026-11-26, T32). Never without one: a cross-site form post arrives without the cookie
+    /// (SameSite=Strict), and clearing it then would let any site log the user out (T32 review). The error is
+    /// written here: the error middleware discards a response's headers, which would drop the clearing cookie.
+    /// </summary>
     [HttpPost("refresh")]
     [AllowAnonymous]
     [EnableRateLimiting(RateLimits.Refresh)]
-    public async Task<IActionResult> Refresh(RefreshTokenRequest request, CancellationToken ct) =>
-        Ok(await tokens.RefreshAsync(request.RefreshToken, ct));
+    public async Task<IActionResult> Refresh(CancellationToken ct)
+    {
+        var token = RefreshTokenCookie.Read(Request);
+        if (token is null) throw ApiException.InvalidRefreshToken();
+        try
+        {
+            return LoggedIn(await tokens.RefreshAsync(token, ct));
+        }
+        catch (ApiException e) when (e.Code == ErrorCode.InvalidRefreshToken)
+        {
+            RefreshTokenCookie.Clear(Response);
+            await ErrorResponses.WriteAsync(HttpContext, e);
+            return new EmptyResult();
+        }
+    }
 
-    /// <summary>Revokes the login the token belongs to; 204 for any token (ADR 0010).</summary>
+    /// <summary>
+    /// Revokes the login the cookie's token belongs to and clears the cookie; 204 with any cookie or none
+    /// (ADR 0010, ADR 0013). With no cookie nothing is cleared, for the same reason as in <see cref="Refresh"/>.
+    /// </summary>
     [HttpPost("logout")]
     [AllowAnonymous]
     [EnableRateLimiting(RateLimits.Refresh)]
-    public async Task<IActionResult> Logout(RefreshTokenRequest request, CancellationToken ct)
+    public async Task<IActionResult> Logout(CancellationToken ct)
     {
-        await tokens.LogoutAsync(request.RefreshToken, ct);
+        if (RefreshTokenCookie.Read(Request) is { } token)
+        {
+            await tokens.LogoutAsync(token, ct);
+            RefreshTokenCookie.Clear(Response);
+        }
         return NoContent();
+    }
+
+    /// <summary>The AuthToken body, with the refresh token moved into the cookie (ADR 0013).</summary>
+    private ObjectResult LoggedIn(AuthTokenResponse body, int status = StatusCodes.Status200OK)
+    {
+        RefreshTokenCookie.Set(Response, body.RefreshToken, body.RefreshTokenExpiresAt, time.GetUtcNow().UtcDateTime);
+        return StatusCode(status, body);
     }
 }

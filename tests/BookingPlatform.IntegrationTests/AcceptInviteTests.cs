@@ -51,7 +51,8 @@ public class AcceptInviteTests(FrozenClockApiFixture fixture) : IClassFixture<Fr
     {
         var (userId, email, token, inviteId) = await InvitedUserAsync();
 
-        var tokens = await Json.ReadAsync(await Accept(token), HttpStatusCode.OK);
+        var response = await Accept(token);
+        var tokens = await Json.ReadAsync(response, HttpStatusCode.OK);
 
         // Logged in: an AuthToken whose access token works and whose refresh token is stored.
         Assert.Equal("Bearer", tokens.GetProperty("tokenType").GetString());
@@ -60,7 +61,7 @@ public class AcceptInviteTests(FrozenClockApiFixture fixture) : IClassFixture<Fr
         Assert.Equal(userId, me.GetProperty("id").GetGuid());
         Assert.Equal(1, await CountAsync(
             "SELECT COUNT(*) FROM refresh_tokens WHERE user_id = @userId AND token_hash = @hash",
-            new { userId, hash = Sql.TokenHash(tokens.GetProperty("refreshToken").GetString()!) }));
+            new { userId, hash = Sql.TokenHash(RefreshCookie.TokenFrom(response)) }));
 
         // The password is saved: the user can now log in with it.
         await Json.ReadAsync(await Login(email, NewPassword), HttpStatusCode.OK);

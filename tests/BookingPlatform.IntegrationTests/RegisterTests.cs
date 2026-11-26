@@ -21,10 +21,11 @@ public class RegisterTests(ApiFixture fixture) : IClassFixture<ApiFixture>
     {
         var email = ApiFixture.NewEmail();
 
-        var tokens = await Json.ReadAsync(await Register(Valid(email)), HttpStatusCode.Created);
+        var response = await Register(Valid(email));
+        var tokens = await Json.ReadAsync(response, HttpStatusCode.Created);
 
         Assert.Equal("Bearer", tokens.GetProperty("tokenType").GetString());
-        Assert.False(string.IsNullOrEmpty(tokens.GetProperty("refreshToken").GetString()));
+        Assert.False(string.IsNullOrEmpty(RefreshCookie.TokenFrom(response))); // ADR 0013: in the cookie, not the body
         Assert.True(tokens.GetProperty("refreshTokenExpiresAt").GetDateTime() > tokens.GetProperty("expiresAt").GetDateTime());
 
         // The access token works straight away and belongs to a plain customer account.

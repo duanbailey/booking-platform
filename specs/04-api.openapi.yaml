@@ -1,8 +1,7 @@
 # Conventions
 # Auth: JWT bearer token carrying the user's ID, valid for 15 minutes, renewed
 #   with a rotating 30-day refresh token (ADR 0010) that travels only in the
-#   HttpOnly cookie refresh_token, never in a body (ADR 0013, 2026-11-26; the
-#   API takes it from the body until the first frontend task, T32, changes it). Roles (owner, staff,
+#   HttpOnly cookie refresh_token, never in a body (ADR 0013, 2026-11-26). Roles (owner, staff,
 #   customer, admin) are not claims; they are worked out per request from the
 #   data (specs/07-nfr.md).
 # Correlation: every response carries X-Correlation-Id; a valid one sent by the
@@ -142,6 +141,7 @@ paths:
           description: Account created; the caller is logged in.
           headers:
             Set-Cookie: { $ref: '#/components/headers/SetRefreshTokenCookie' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AuthToken' }
@@ -175,6 +175,7 @@ paths:
           description: Logged in.
           headers:
             Set-Cookie: { $ref: '#/components/headers/SetRefreshTokenCookie' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AuthToken' }
@@ -216,6 +217,7 @@ paths:
           description: Password set; the caller is logged in.
           headers:
             Set-Cookie: { $ref: '#/components/headers/SetRefreshTokenCookie' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AuthToken' }
@@ -247,6 +249,7 @@ paths:
           description: New tokens.
           headers:
             Set-Cookie: { $ref: '#/components/headers/SetRefreshTokenCookie' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AuthToken' }
@@ -255,6 +258,17 @@ paths:
           description: |
             `InvalidRefreshToken`: no cookie was sent, or its token is unknown,
             expired, already used or revoked (the response does not say which).
+            When the request carried a cookie, it is cleared, so the browser stops
+            sending it. Without one nothing is cleared: a cross-site form post
+            arrives without the cookie (SameSite=Strict), and clearing it then
+            would let any site log the user out.
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/ClearRefreshTokenCookie'
+              description: Only when the request carried a refresh_token cookie.
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+              description: Only when the cookie is cleared.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -269,7 +283,8 @@ paths:
         `refresh_token` cookie belongs to (ADR 0010), and clears the cookie
         (ADR 0013). Needs no access token, so a client whose access token has
         expired can still log out. Returns 204 even with no cookie or an
-        unknown, expired or revoked token. Access tokens already issued stay
+        unknown, expired or revoked token. With no cookie nothing is cleared,
+        so a cross-site form post can't log the user out. Access tokens already issued stay
         valid until they expire (at most 15 minutes). Takes no body; any body is
         ignored.
       security: []
@@ -279,7 +294,12 @@ paths:
         '204':
           description: Logged out.
           headers:
-            Set-Cookie: { $ref: '#/components/headers/ClearRefreshTokenCookie' }
+            Set-Cookie:
+              $ref: '#/components/headers/ClearRefreshTokenCookie'
+              description: Only when the request carried a refresh_token cookie.
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+              description: Only when the cookie is cleared.
         '429': { $ref: '#/components/responses/TooManyRequests' }
 
   /v1/auth/forgot-password:
@@ -338,6 +358,7 @@ paths:
           description: Password set; the caller is logged in.
           headers:
             Set-Cookie: { $ref: '#/components/headers/SetRefreshTokenCookie' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AuthToken' }
@@ -380,6 +401,7 @@ paths:
           description: Password changed; new tokens for the caller.
           headers:
             Set-Cookie: { $ref: '#/components/headers/SetRefreshTokenCookie' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AuthToken' }
@@ -1525,6 +1547,9 @@ components:
         Page scripts can't read it. Each response that sets it replaces the
         previous one.
       schema: { type: string }
+    NoStore:
+      description: '`no-store`: responses that carry or clear tokens are never cached.'
+      schema: { const: no-store }
     ClearRefreshTokenCookie:
       description: |
         Clears the refresh token cookie:
