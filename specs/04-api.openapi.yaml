@@ -1,6 +1,8 @@
 # Conventions
 # Auth: JWT bearer token carrying the user's ID, valid for 15 minutes, renewed
-#   with a rotating 30-day refresh token (ADR 0010). Roles (owner, staff,
+#   with a rotating 30-day refresh token (ADR 0010) that travels only in the
+#   HttpOnly cookie refresh_token, never in a body (ADR 0013, 2026-11-26; the
+#   API takes it from the body until the first frontend task, T32, changes it). Roles (owner, staff,
 #   customer, admin) are not claims; they are worked out per request from the
 #   data (specs/07-nfr.md).
 # Correlation: every response carries X-Correlation-Id; a valid one sent by the
@@ -32,7 +34,7 @@ info:
       `RangeTooLong`, `InviteInvalid`, `ResetLinkInvalid`).
     - **401** No valid token (`Unauthenticated`), bad login credentials
       (`InvalidCredentials`), or a refresh token that is unknown, expired, used
-      or revoked (`InvalidRefreshToken`, ADR 0010).
+      or revoked, or missing (`InvalidRefreshToken`, ADR 0010).
     - **403** The caller can view the resource but may not perform the action.
     - **404** The resource does not exist, or the caller may not view it. The API
       never reveals that a resource the caller may not view exists.
@@ -138,11 +140,13 @@ paths:
       responses:
         '201':
           description: Account created; the caller is logged in.
+          headers:
+            Set-Cookie: { $ref: '#/components/headers/SetRefreshTokenCookie' }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AuthToken' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
- { $ref: '#/components/responses/ValidationFailed' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
         '409':
           description: '`EmailTaken`: the email already belongs to an account.'
           content:
@@ -169,11 +173,13 @@ paths:
       responses:
         '200':
           description: Logged in.
+          headers:
+            Set-Cookie: { $ref: '#/components/headers/SetRefreshTokenCookie' }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AuthToken' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
- { $ref: '#/components/responses/ValidationFailed' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
         '401':
           description: |
             `InvalidCredentials`. Returned alike for an unknown email, a wrong
@@ -208,11 +214,13 @@ paths:
       responses:
         '200':
           description: Password set; the caller is logged in.
+          headers:
+            Set-Cookie: { $ref: '#/components/headers/SetRefreshTokenCookie' }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AuthToken' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
-
+        '400':
           description: |
             `InviteInvalid`: the token is unknown, expired or already used (the
             response does not say which), or `ValidationFailed`.
@@ -226,33 +234,27 @@ paths:
       operationId: refreshToken
       summary: Exchange a refresh token for new tokens
       description: |
-        Rotates the refresh token (ADR 0010): the presented token is retired and
-        a new access token and refresh token are returned. The new refresh token
-        is valid for 30 days from now. Presenting a retired token again revokes
-        every token from that login, and the user must log in again.
+        Rotates the refresh token (ADR 0010): the token in the `refresh_token`
+        cookie is retired, a new access token is returned, and the cookie is set
+        to a new refresh token, valid for 30 days from now (ADR 0013). Presenting
+        a retired token again revokes every token from that login, and the user
+        must log in again. Takes no body; any body is ignored.
       security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              required: [refreshToken]
-              properties:
-                refreshToken: { type: string, minLength: 1 }
+      parameters:
+        - $ref: '#/components/parameters/RefreshTokenCookie'
       responses:
         '200':
           description: New tokens.
+          headers:
+            Set-Cookie: { $ref: '#/components/headers/SetRefreshTokenCookie' }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AuthToken' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
- { $ref: '#/components/responses/ValidationFailed' }
         '401':
           description: |
-            `InvalidRefreshToken`: the token is unknown, expired, already used or
-            revoked (the response does not say which).
+            `InvalidRefreshToken`: no cookie was sent, or its token is unknown,
+            expired, already used or revoked (the response does not say which).
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -263,27 +265,22 @@ paths:
       operationId: logout
       summary: Log out
       description: |
-        Revokes every refresh token from the login the presented token belongs
-        to (ADR 0010). Needs no access token, so a client whose access token has
-        expired can still log out. Returns 204 even for an unknown, expired or
-        revoked token. Access tokens already issued stay valid until they expire
-        (at most 15 minutes).
+        Revokes every refresh token from the login the token in the
+        `refresh_token` cookie belongs to (ADR 0010), and clears the cookie
+        (ADR 0013). Needs no access token, so a client whose access token has
+        expired can still log out. Returns 204 even with no cookie or an
+        unknown, expired or revoked token. Access tokens already issued stay
+        valid until they expire (at most 15 minutes). Takes no body; any body is
+        ignored.
       security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              required: [refreshToken]
-              properties:
-                refreshToken: { type: string, minLength: 1 }
+      parameters:
+        - $ref: '#/components/parameters/RefreshTokenCookie'
       responses:
         '204':
           description: Logged out.
+          headers:
+            Set-Cookie: { $ref: '#/components/headers/ClearRefreshTokenCookie' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
- { $ref: '#/components/responses/ValidationFailed' }
 
   /v1/auth/forgot-password:
     post:
@@ -339,6 +336,8 @@ paths:
       responses:
         '200':
           description: Password set; the caller is logged in.
+          headers:
+            Set-Cookie: { $ref: '#/components/headers/SetRefreshTokenCookie' }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AuthToken' }
@@ -379,6 +378,8 @@ paths:
       responses:
         '200':
           description: Password changed; new tokens for the caller.
+          headers:
+            Set-Cookie: { $ref: '#/components/headers/SetRefreshTokenCookie' }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AuthToken' }
@@ -1516,6 +1517,20 @@ paths:
               schema: { $ref: '#/components/schemas/Error' }
 
 components:
+  headers:
+    SetRefreshTokenCookie:
+      description: |
+        Sets the refresh token (ADR 0013):
+        `refresh_token=<token>; HttpOnly; Secure; SameSite=Strict; Path=/v1/auth; Max-Age=<seconds until refreshTokenExpiresAt>`.
+        Page scripts can't read it. Each response that sets it replaces the
+        previous one.
+      schema: { type: string }
+    ClearRefreshTokenCookie:
+      description: |
+        Clears the refresh token cookie:
+        `refresh_token=; HttpOnly; Secure; SameSite=Strict; Path=/v1/auth; Max-Age=0`.
+      schema: { type: string }
+
   securitySchemes:
     bearerAuth:
       type: http
@@ -1523,6 +1538,14 @@ components:
       bearerFormat: JWT
 
   parameters:
+    RefreshTokenCookie:
+      name: refresh_token
+      in: cookie
+      required: false
+      description: |
+        The refresh token, set by the API (ADR 0013). The browser sends it only
+        to /v1/auth and only from the app's own origin (SameSite=Strict).
+      schema: { type: string }
     BusinessId:
       name: businessId
       in: path
@@ -1883,9 +1906,12 @@ components:
 
     # ------------------------------------------------------------ Auth
     AuthToken:
-      description: Tokens for a login session (ADR 0010).
+      description: |
+        Tokens for a login session (ADR 0010). The refresh token itself is not
+        in the body: it is set in the `refresh_token` cookie (ADR 0013). Keep the
+        access token in memory only.
       type: object
-      required: [accessToken, tokenType, expiresAt, refreshToken, refreshTokenExpiresAt]
+      required: [accessToken, tokenType, expiresAt, refreshTokenExpiresAt]
       properties:
         accessToken:
           description: JWT for the Authorization header, valid for 15 minutes.
@@ -1894,13 +1920,10 @@ components:
         expiresAt:
           description: When the access token expires.
           $ref: '#/components/schemas/UtcTimestamp'
-        refreshToken:
-          description: |
-            Single-use token for `POST /v1/auth/refresh`. Store the newest one;
-            each refresh replaces it.
-          type: string
         refreshTokenExpiresAt:
-          description: When the refresh token expires (30 days after it was issued).
+          description: |
+            When the refresh token in the cookie expires (30 days after it was
+            issued); the cookie expires at the same moment.
           $ref: '#/components/schemas/UtcTimestamp'
     Me:
       type: object

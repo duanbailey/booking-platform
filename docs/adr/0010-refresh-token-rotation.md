@@ -1,6 +1,6 @@
 # ADR 0010: Short-lived access tokens with rotating refresh tokens
 
-- **Status:** Accepted
+- **Status:** Accepted; amended by [ADR 0013](0013-refresh-token-in-httponly-cookie.md) (the refresh token travels in an HttpOnly cookie, not the body; 2026-11-26)
 - **Date:** 2026-11-17 (amended 2026-11-19: password reset and change, locking)
 - **Related specs:** [specs/07-nfr.md](../../specs/07-nfr.md), [specs/04-api.openapi.yaml](../../specs/04-api.openapi.yaml), [specs/05-data-model.md](../../specs/05-data-model.md)
 
