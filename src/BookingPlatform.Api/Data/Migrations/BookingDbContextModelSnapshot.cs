@@ -310,6 +310,39 @@ namespace BookingPlatform.Api.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("BookingPlatform.Api.Data.IdempotencyRecord", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("char(36)")
+                        .HasColumnName("user_id");
+
+                    b.Property<string>("IdempotencyKey")
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("idempotency_key")
+                        .UseCollation("ascii_bin");
+
+                    b.Property<Guid>("BookingId")
+                        .HasColumnType("char(36)")
+                        .HasColumnName("booking_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("RequestHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("request_hash");
+
+                    b.HasKey("UserId", "IdempotencyKey");
+
+                    b.HasIndex("BookingId");
+
+                    b.ToTable("idempotency_keys", (string)null);
+                });
+
             modelBuilder.Entity("BookingPlatform.Api.Data.Notification", b =>
                 {
                     b.Property<Guid>("Id")
@@ -878,6 +911,21 @@ namespace BookingPlatform.Api.Data.Migrations
                     b.HasOne("BookingPlatform.Api.Data.User", null)
                         .WithOne()
                         .HasForeignKey("BookingPlatform.Api.Data.Business", "OwnerUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("BookingPlatform.Api.Data.IdempotencyRecord", b =>
+                {
+                    b.HasOne("BookingPlatform.Api.Data.Booking", null)
+                        .WithMany()
+                        .HasForeignKey("BookingId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("BookingPlatform.Api.Data.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });

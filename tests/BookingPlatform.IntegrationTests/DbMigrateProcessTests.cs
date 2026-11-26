@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Reflection;
+using BookingPlatform.Api.Data;
 using BookingPlatform.IntegrationTests.Infrastructure;
 using MySql.Data.MySqlClient;
 
@@ -45,6 +47,15 @@ public class DbMigrateProcessTests : IAsyncLifetime
 
     private Sql Master => new(MasterConnection);
 
+    /// <summary>Every migration in the API, in order (from their [Migration] attributes).</summary>
+    private static readonly string[] AllMigrations = typeof(BookingDbContext).Assembly.GetTypes()
+        .Select(t => t.GetCustomAttribute<Microsoft.EntityFrameworkCore.Migrations.MigrationAttribute>()?.Id)
+        .OfType<string>().Order(StringComparer.Ordinal).ToArray();
+
+    private async Task<List<string>> AppliedMigrationsAsync() =>
+        (await Master.RowsAsync("SELECT MigrationId FROM __EFMigrationsHistory ORDER BY MigrationId"))
+        .Select(r => Convert.ToString(r["MigrationId"])!).ToList();
+
     private Dictionary<string, string?> Settings(string apiPassword = "api-password-1", string workerPassword = "worker-password-1") => new()
     {
         ["ConnectionStrings__BookingDb"] = MasterConnection,
@@ -83,8 +94,8 @@ public class DbMigrateProcessTests : IAsyncLifetime
         var (exit, output, error) = await RunAsync(Settings(), "db", "migrate");
 
         Assert.True(exit == 0, $"exit {exit}\n{output}\n{error}");
-        Assert.Equal("20261124200105_InitialSchema",
-            Convert.ToString(await Master.ScalarAsync("SELECT MigrationId FROM __EFMigrationsHistory")));
+        Assert.Equal("20261124200105_InitialSchema", AllMigrations[0]);
+        Assert.Equal(AllMigrations, await AppliedMigrationsAsync());
         Assert.Contains(_apiUser, output);
         Assert.Contains(_workerUser, output);
         Assert.DoesNotContain("api-password-1", output + error);
@@ -129,7 +140,7 @@ public class DbMigrateProcessTests : IAsyncLifetime
         var (exit, _, _) = await RunAsync(Settings(apiPassword: "api-password-2", workerPassword: "worker-password-2"), "db", "migrate");
 
         Assert.Equal(0, exit);
-        Assert.Equal(1L, Convert.ToInt64(await Master.ScalarAsync("SELECT COUNT(*) FROM __EFMigrationsHistory")));
+        Assert.Equal(AllMigrations, await AppliedMigrationsAsync()); // each applied once
         await As(_apiUser, "api-password-2").ScalarAsync("SELECT 1");
         await As(_workerUser, "worker-password-2").ScalarAsync("SELECT 1");
         await As(_apiUser, "api-password-1").ScalarAsync("SELECT 1");

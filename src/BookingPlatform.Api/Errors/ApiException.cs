@@ -137,6 +137,11 @@ public sealed class ApiException(int status, ErrorCode code, string message, str
     public static ApiException CustomerNotFound() =>
         new(StatusCodes.Status422UnprocessableEntity, ErrorCode.CustomerNotFound, "No account exists with this email.");
 
+    /// <summary>T29: the caller already used this Idempotency-Key for a different request.</summary>
+    public static ApiException IdempotencyKeyReused() =>
+        new(StatusCodes.Status422UnprocessableEntity, ErrorCode.IdempotencyKeyReused,
+            "This Idempotency-Key was already used for a different request; send a new key for a new booking.");
+
     /// <summary>Resend refused: the account already has a password.</summary>
     public static ApiException InviteNotPending() =>
         new(StatusCodes.Status422UnprocessableEntity, ErrorCode.InviteNotPending, "This account already has a password.");

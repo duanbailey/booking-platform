@@ -26,5 +26,6 @@ public enum ErrorCode
     StaffNotAssignedToService,
     BookingCancelled,
     CustomerNotFound,
+    IdempotencyKeyReused,
     InternalError,
 }

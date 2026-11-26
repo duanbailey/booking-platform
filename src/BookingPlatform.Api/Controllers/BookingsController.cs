@@ -8,6 +8,7 @@ using BookingPlatform.Api.Slots;
 using BookingPlatform.Api.Validation;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using MySql.Data.MySqlClient;
 
 namespace BookingPlatform.Api.Controllers;
 
@@ -45,6 +46,7 @@ public sealed class BookingsController(
     /// removed staff member, 422 StaffNotAssignedToService, 422 SlotUnavailable for a start slot generation
     /// would not offer even ignoring notice and bookings (R8), 422 MinimumNotice (R3), 409 SlotConflict (R1, R7),
     /// and last 409 ConfirmationRequired (R4), so the warning only appears for a booking that would be made.
+    /// A repeated Idempotency-Key comes before all of them (T29).
     /// </summary>
     [HttpPost("bookings")]
     public async Task<IActionResult> Create(CreateBookingRequest request, CancellationToken ct)
@@ -52,6 +54,57 @@ public sealed class BookingsController(
         var callerId = User.GetUserId();
         var (serviceId, staffId) = (request.ServiceId!.Value, request.StaffId!.Value); // [Required]
         UtcTimestampAttribute.TryParse(request.StartUtc, out var start); // valid: checked by [UtcTimestamp]
+
+        // T29: a repeat of a request whose booking was made is answered before every other check.
+        Idempotency? idempotency = null;
+        if (IdempotencyKeys.Read(Request) is { } key)
+        {
+            idempotency = new Idempotency(key, IdempotencyKeys.RequestHash(
+                serviceId, staffId, start, request.CustomerEmail, request.OverrideMinimumNotice));
+            if ((await CheckKeyAsync(callerId, idempotency, ct)).Repeat is { } repeat) return repeat;
+        }
+
+        try
+        {
+            return await CreateOnceAsync(request, callerId, serviceId, staffId, start, idempotency, ct);
+        }
+        catch (DbUpdateException e) when (idempotency is not null && e.InnerException is MySqlException { Number: MySqlDuplicateKey })
+        {
+            // A simultaneous request with this key made its booking first, and the primary key refused ours
+            // (this one was rolled back). Answer as a repeat of it.
+            db.ChangeTracker.Clear();
+            var repeat = (await CheckKeyAsync(callerId, idempotency, ct)).Repeat;
+            if (repeat is null) throw;
+            return repeat;
+        }
+    }
+
+    private sealed record Idempotency(string Key, string RequestHash);
+
+    /// <summary>
+    /// T29: the answer to a repeat of <paramref name="idempotency"/>'s key, if the caller made a booking with it
+    /// in the last 24 hours: 201 with the booking as it is now, or 422 IdempotencyKeyReused for a different
+    /// request. Expired is true if the key has a row that is too old to count, which a new booking replaces.
+    /// </summary>
+    private async Task<(IActionResult? Repeat, bool Expired)> CheckKeyAsync(Guid callerId, Idempotency idempotency, CancellationToken ct)
+    {
+        var record = await db.IdempotencyKeys.AsNoTracking()
+            .Where(k => k.UserId == callerId && k.IdempotencyKey == idempotency.Key) // case-sensitive: ascii_bin
+            .SingleOrDefaultAsync(ct);
+        if (record is null) return (null, false);
+        if (record.CreatedAt <= time.GetUtcNow().UtcDateTime - IdempotencyKeys.Lifetime) return (null, true);
+        if (record.RequestHash != idempotency.RequestHash) throw ApiException.IdempotencyKeyReused();
+
+        var booking = await BookingQueries.Responses(db, db.Bookings.Where(b => b.Id == record.BookingId)).SingleAsync(ct);
+        return (Created($"/v1/bookings/{booking.Id}", booking), false);
+    }
+
+    private const int MySqlDuplicateKey = 1062;
+
+    private async Task<IActionResult> CreateOnceAsync(
+        CreateBookingRequest request, Guid callerId, Guid serviceId, Guid staffId, DateTime start, Idempotency? idempotency,
+        CancellationToken ct)
+    {
         var onBehalf = request.CustomerEmail is not null;
 
         // Before any lock, so a caller who may not do this never holds up the staff member's schedule.
@@ -77,6 +130,16 @@ public sealed class BookingsController(
             throw missing == callerId ? ApiException.Unauthenticated() : ApiException.CustomerNotFound();
         }
         if (await db.LockStaffAsync(staffId, ct) is null) throw ApiException.NotFound();
+
+        // T29: checked again under the locks (the first plain read, so it is current): a simultaneous repeat
+        // waited for the customer's row above and is answered here. Requests that take different locks are
+        // settled by the primary key when the row is inserted.
+        var keyExpired = false;
+        if (idempotency is not null)
+        {
+            (var repeat, keyExpired) = await CheckKeyAsync(callerId, idempotency, ct);
+            if (repeat is not null) return repeat;
+        }
 
         // Everything is read again under the lock. The lock is the first statement on the staff row, and
         // REPEATABLE READ takes its snapshot at the first plain read, so these reads are current.
@@ -130,6 +193,23 @@ public sealed class BookingsController(
             outbox.Add(new RebookedInsideWindow(business.Id, business.TimeZone, customerId, original.BookingId,
                 new EventSlot(original.StaffId, original.StartUtc, original.EndUtc), booking.Id,
                 new EventSlot(staffId, booking.StartUtc, booking.EndUtc)));
+        }
+        if (idempotency is not null)
+        {
+            if (keyExpired)
+            {
+                // Replaces the expired row. Only while it is still expired, so a simultaneous request's new row
+                // stays and ours fails on the primary key. Run only when the row exists: a delete that matches
+                // no row would take a gap lock and could deadlock other callers' inserts.
+                var cutoff = now - IdempotencyKeys.Lifetime;
+                await db.Database.ExecuteSqlAsync(
+                    $"DELETE FROM idempotency_keys WHERE user_id = {callerId} AND idempotency_key = {idempotency.Key} AND created_at <= {cutoff}", ct);
+            }
+            db.IdempotencyKeys.Add(new IdempotencyRecord
+            {
+                UserId = callerId, IdempotencyKey = idempotency.Key, RequestHash = idempotency.RequestHash,
+                BookingId = booking.Id, CreatedAt = now,
+            });
         }
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);

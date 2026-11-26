@@ -28,7 +28,7 @@ public class SchemaTests(TestDatabase database) : IClassFixture<TestDatabase>
         [
             "users", "user_invites", "password_resets", "refresh_tokens", "platform_admins", "businesses", "services", "staff", "staff_services",
             "availability_rules", "availability_exceptions", "time_off", "time_zone_changes", "outbox",
-            "bookings", "notifications", "booking_history",
+            "bookings", "idempotency_keys", "notifications", "booking_history",
         ];
         foreach (var table in tables)
         {
@@ -65,6 +65,15 @@ public class SchemaTests(TestDatabase database) : IClassFixture<TestDatabase>
         Assert.Equal("utf8mb4_0900_as_ci", await _sql.ScalarAsync(
             "SELECT COLLATION_NAME FROM information_schema.COLUMNS " +
             "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'email'"));
+    }
+
+    [Fact]
+    public async Task Idempotency_keys_are_case_sensitive_ascii()
+    {
+        // T29, specs/05-data-model.md: ascii_bin, set with explicit SQL (the provider drops column collations).
+        Assert.Equal("ascii_bin", await _sql.ScalarAsync(
+            "SELECT COLLATION_NAME FROM information_schema.COLUMNS " +
+            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'idempotency_keys' AND COLUMN_NAME = 'idempotency_key'"));
     }
 
     [Fact]

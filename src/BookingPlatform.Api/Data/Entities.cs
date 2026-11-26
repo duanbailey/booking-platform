@@ -249,6 +249,20 @@ public class Booking
     public int Version { get; set; }
 }
 
+/// <summary>
+/// T29: the Idempotency-Key of a booking created with one. Keys belong to the caller (user_id) and count for
+/// 24 hours after created_at; only created bookings get a row (specs/05-data-model.md).
+/// </summary>
+public class IdempotencyRecord
+{
+    public Guid UserId { get; set; }
+    public required string IdempotencyKey { get; set; }
+    /// <summary>Lowercase hex SHA-256 of the request's normalised fields; refuses the key for a different request.</summary>
+    public required string RequestHash { get; set; }
+    public Guid BookingId { get; set; }
+    public DateTime CreatedAt { get; set; }
+}
+
 public enum BookingHistoryType { Created, Rescheduled }
 
 public enum ActorRole { Owner, Staff, Customer }

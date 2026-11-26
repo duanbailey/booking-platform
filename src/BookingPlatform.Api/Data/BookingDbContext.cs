@@ -32,6 +32,7 @@ public class BookingDbContext(DbContextOptions<BookingDbContext> options) : DbCo
     public DbSet<OutboxMessage> Outbox => Set<OutboxMessage>();
     public DbSet<Booking> Bookings => Set<Booking>();
     public DbSet<BookingHistory> BookingHistory => Set<BookingHistory>();
+    public DbSet<IdempotencyRecord> IdempotencyKeys => Set<IdempotencyRecord>();
     public DbSet<Notification> Notifications => Set<Notification>();
 
     /// <summary>
@@ -301,6 +302,17 @@ public class BookingDbContext(DbContextOptions<BookingDbContext> options) : DbCo
             e.HasOne<Staff>().WithMany().HasForeignKey(x => x.StaffId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne<Staff>().WithMany().HasForeignKey(x => x.PreviousStaffId).OnDelete(DeleteBehavior.Restrict);
             e.HasIndex(x => new { x.BookingId, x.At });
+        });
+
+        modelBuilder.Entity<IdempotencyRecord>(e =>
+        {
+            e.ToTable("idempotency_keys"); // T29
+            e.HasKey(x => new { x.UserId, x.IdempotencyKey }); // keys belong to the caller
+            // Case-sensitive ASCII. The provider drops the collation from the DDL; the migration sets it by hand.
+            e.Property(x => x.IdempotencyKey).HasMaxLength(64).UseCollation("ascii_bin");
+            e.Property(x => x.RequestHash).HasMaxLength(64); // SHA-256, hex
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<Booking>().WithMany().HasForeignKey(x => x.BookingId).OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<Notification>(e =>
