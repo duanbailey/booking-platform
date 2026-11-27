@@ -45,7 +45,7 @@ export interface ApiRequest {
 }
 
 /**
- * Calls the API and returns the parsed JSON body (undefined for 204). Throws ApiError for any non-2xx response
+ * Calls the API and returns the parsed JSON body (undefined when there is none). Throws ApiError for any non-2xx response
  * and for a network failure. Same-origin credentials, so the browser sends the refresh cookie to /v1/auth
  * (ADR 0013).
  */
@@ -72,8 +72,9 @@ export async function apiFetch<T = unknown>(path: ApiPath, request: ApiRequest =
   }
 
   if (response.ok) {
-    if (response.status === 204) return undefined as T;
-    return (await response.json()) as T;
+    // No body (204, or forgotPassword's 202): undefined.
+    const text = await response.text();
+    return (text === "" ? undefined : JSON.parse(text)) as T;
   }
   throw await toApiError(response);
 }

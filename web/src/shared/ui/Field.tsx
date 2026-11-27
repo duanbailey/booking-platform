@@ -35,13 +35,17 @@ interface TextFieldProps {
   autoComplete: string;
   error?: string;
   required?: boolean;
+  defaultValue?: string;
 }
 
 /** A text input with its label and error. Forms don't validate in the browser; the API's answer is shown (T34). */
-export function TextField({ label, name, type = "text", autoComplete, error, required }: TextFieldProps) {
+export function TextField({ label, name, type = "text", autoComplete, error, required, defaultValue }: TextFieldProps) {
   return (
     <FieldFrame label={label} error={error}>
-      {(control) => <input {...control} name={name} type={type} autoComplete={autoComplete} required={required} />}
+      {(control) => (
+        <input {...control} name={name} type={type} autoComplete={autoComplete} required={required}
+          defaultValue={defaultValue} />
+      )}
     </FieldFrame>
   );
 }
@@ -65,6 +69,11 @@ export function SelectField({ label, name, options, defaultValue, error, require
       )}
     </FieldFrame>
   );
+}
+
+/** The mismatch problem when a new password and its confirmation differ (the API has no confirmation field). */
+export function passwordMismatch(password: FormDataEntryValue | null, confirm: FormDataEntryValue | null) {
+  return password === confirm ? null : "The passwords don't match.";
 }
 
 /** Moves focus to the form's first invalid field whenever `answer` (the action's result) changes. */

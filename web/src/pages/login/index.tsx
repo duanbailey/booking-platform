@@ -60,6 +60,7 @@ function LoginPage() {
           error={fields.password} />
         <button type="submit" disabled={submitting}>{submitting ? "Logging in…" : "Log in"}</button>
       </Form>
+      <p><Link to="/forgot-password">Forgot your password?</Link></p>
       <p>No account yet? <Link to={withNext("/sign-up", next)}>Sign up</Link></p>
     </Page>
   );

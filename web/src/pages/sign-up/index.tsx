@@ -6,7 +6,7 @@ import { apiFetch, ApiError } from "@/shared/api/client";
 import { safeNext, withNext } from "@/shared/lib/safeNext";
 import { browserTimeZone, timeZoneOptions } from "@/shared/lib/timeZones";
 import { Alert, ErrorMessage } from "@/shared/ui/ErrorMessage";
-import { fieldErrors, SelectField, TextField, useFocusFirstInvalid } from "@/shared/ui/Field";
+import { fieldErrors, passwordMismatch, SelectField, TextField, useFocusFirstInvalid } from "@/shared/ui/Field";
 import { Page } from "@/shared/ui/Page";
 import styles from "@/shared/ui/Form.module.css";
 
@@ -20,9 +20,8 @@ type SignUpAnswer = { error: ApiError } | { fields: Record<string, string> };
 async function signUpAction({ request }: ActionFunctionArgs): Promise<SignUpAnswer | Response> {
   const form = await request.formData();
   const text = (name: string) => String(form.get(name) ?? "");
-  if (text("password") !== text("confirmPassword")) {
-    return { fields: { confirmPassword: "The passwords don't match." } };
-  }
+  const mismatch = passwordMismatch(form.get("password"), form.get("confirmPassword"));
+  if (mismatch) return { fields: { confirmPassword: mismatch } };
   try {
     const tokens = await apiFetch<AuthToken>("/v1/auth/register", {
       method: "POST",

@@ -30,6 +30,12 @@ describe("apiFetch", () => {
     expect(headers.get("Authorization")).toBe("Bearer token-1");
   });
 
+  it("returns undefined for a success without a body, e.g. forgotPassword's 202", async () => {
+    mockFetch(new Response(null, { status: 202 }));
+
+    await expect(apiFetch("/v1/auth/forgot-password", { method: "POST", body: { email: "a@b.c" } })).resolves.toBeUndefined();
+  });
+
   it("sends no body or Content-Type when there is no body, and returns undefined for 204", async () => {
     const fetch = mockFetch(new Response(null, { status: 204 }));
 

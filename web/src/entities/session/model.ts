@@ -101,10 +101,24 @@ export const session = {
     return starting;
   },
 
-  /** Starts a session from a login or sign-up response. */
+  /**
+   * Starts a session from a response that logs in (login, sign-up, accept-invite, reset-password), replacing any
+   * current one. The session counts as started, so no refresh on load follows.
+   */
   async logIn(tokens: AuthToken): Promise<void> {
     accessToken = tokens.accessToken;
     await loadUser();
+    starting = Promise.resolve();
+  },
+
+  /** Keeps the new access token from a response that renews the login (change-password, T35). */
+  setTokens(tokens: AuthToken): void {
+    accessToken = tokens.accessToken;
+  },
+
+  /** Replaces the user after updateMe (T35). */
+  setUser(user: Me): void {
+    if (state.status === "loggedIn") setState({ ...state, user });
   },
 
   /**

@@ -11,6 +11,7 @@ export function AppHeader() {
       <Link to="/home" className={styles.name}>Booking platform</Link>
       <div className={styles.user}>
         <span>{user?.name}</span>
+        <Link to="/profile">Profile</Link>
         <LogoutButton />
       </div>
     </header>
