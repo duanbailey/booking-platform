@@ -6,13 +6,13 @@ import { ApiError, apiFetch } from "./client";
 // shape (specs/04-api.openapi.yaml) turned into ApiError with the X-Correlation-Id kept for error messages.
 describe("apiFetch", () => {
   it("calls the relative URL with the same-origin cookie policy and returns the JSON body", async () => {
-    const fetch = mockFetch(json(200, { status: "ok" }));
+    const fetch = mockFetch(json(200, { name: "Cut & Dry" }));
 
-    const data = await apiFetch<{ status: string }>("/health");
+    const data = await apiFetch<{ name: string }>("/v1/businesses/b1");
 
-    expect(data).toEqual({ status: "ok" });
+    expect(data).toEqual({ name: "Cut & Dry" });
     const [url, init] = call(fetch);
-    expect(url).toBe("/health");
+    expect(url).toBe("/v1/businesses/b1");
     expect(init.credentials).toBe("same-origin"); // the refresh cookie goes with /v1/auth calls (ADR 0013)
     expect(new Headers(init.headers).get("Accept")).toBe("application/json");
   });

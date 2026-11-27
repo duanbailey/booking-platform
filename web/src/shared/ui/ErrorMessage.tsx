@@ -1,5 +1,6 @@
 import { ApiError } from "../api/client";
 import styles from "./ErrorMessage.module.css";
+import type { ReactNode } from "react";
 
 const unexpected = "Something went wrong on our side. Please try again.";
 
@@ -24,13 +25,18 @@ function describe(error: unknown): { text: string; reference?: string } {
   }
 }
 
+/** A message in an alert (role="alert"), for errors a screen words itself. */
+export function Alert({ children }: { children: ReactNode }) {
+  return <div role="alert" className={styles.error}>{children}</div>;
+}
+
 /** Shows an error from an API call (or anything thrown) in an alert. Screens handle their own codes first. */
 export function ErrorMessage({ error }: { error: unknown }) {
   const { text, reference } = describe(error);
   return (
-    <div role="alert" className={styles.error}>
+    <Alert>
       <p>{text}</p>
       {reference && <p>If it keeps happening, quote reference {reference}.</p>}
-    </div>
+    </Alert>
   );
 }

@@ -5,13 +5,14 @@ const appName = "Booking platform";
 
 /**
  * A page's frame: its main landmark, its level-1 heading, and the document title (WCAG 2.4.2; React 19 moves the
- * <title> into the document head). Every screen renders one.
+ * <title> into the document head). Every screen renders one. The heading can take focus, which moves to it after
+ * each navigation (T34).
  */
 export function Page({ title, children }: { title: string; children: ReactNode }) {
   return (
     <main className={styles.page}>
       <title>{`${title} · ${appName}`}</title>
-      <h1>{title}</h1>
+      <h1 tabIndex={-1}>{title}</h1>
       {children}
     </main>
   );

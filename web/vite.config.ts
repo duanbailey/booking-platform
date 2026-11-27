@@ -10,10 +10,8 @@ export default defineConfig({
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
   server: {
     // Same origin as in production (ADR 0012): the app calls relative /v1 URLs and the dev server forwards them.
-    // /health is forwarded too, for the development placeholder page only (T33); production routes /v1/* alone.
     proxy: {
       "/v1": { target: api, changeOrigin: true },
-      "/health": { target: api, changeOrigin: true },
     },
   },
   test: {

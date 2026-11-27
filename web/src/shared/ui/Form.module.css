@@ -1,0 +1,18 @@
+.form {
+  margin: var(--space-6) 0;
+}
+
+.form button {
+  font: inherit;
+  padding: var(--space-2) var(--space-4);
+  border: var(--border-width) solid var(--color-accent);
+  border-radius: var(--radius);
+  background: var(--color-accent);
+  color: var(--color-surface);
+  cursor: pointer;
+}
+
+.form button:disabled {
+  opacity: 0.7;
+  cursor: progress;
+}

@@ -1,23 +1,26 @@
 import type { RouteObject } from "react-router";
-import { useRouteError } from "react-router";
-import { healthRoute } from "@/pages/health";
+import { homeRoute } from "@/pages/home";
+import { loginRoute } from "@/pages/login";
 import { notFoundRoute } from "@/pages/not-found";
-import { ErrorMessage } from "@/shared/ui/ErrorMessage";
-import { Page } from "@/shared/ui/Page";
+import { signUpRoute } from "@/pages/sign-up";
+import { guestOnly, Loading, requireUser, RootError, RootLayout, UserLayout } from "./layouts";
 
-/** Shown for an error no screen handled (a screen's own errorElement comes first). */
-function RootError() {
-  return (
-    <Page title="Something went wrong">
-      <ErrorMessage error={useRouteError()} />
-    </Page>
-  );
-}
-
-/** The root route around `children`: catches unhandled errors and ends with the not-found page (T33). */
+/** The root route around `children`: focus on navigation, unhandled errors, and the not-found page last (T33). */
 export function rootRoute(children: RouteObject[]): RouteObject {
-  return { errorElement: <RootError />, children: [...children, notFoundRoute] };
+  return {
+    element: <RootLayout />,
+    errorElement: <RootError />,
+    HydrateFallback: Loading,
+    children: [...children, notFoundRoute],
+  };
 }
 
-/** Every route of the app (React Router 8, library data mode; T33). Screen tasks add theirs here. */
-export const routes: RouteObject[] = [rootRoute([healthRoute])];
+/** Every route of the app (React Router 8, library data mode). Screen tasks add theirs to the right group. */
+export const routes: RouteObject[] = [
+  rootRoute([
+    // Visitors only (T34).
+    { loader: guestOnly, children: [loginRoute, signUpRoute] },
+    // Logged-in users (T34).
+    { loader: requireUser, element: <UserLayout />, children: [homeRoute] },
+  ]),
+];

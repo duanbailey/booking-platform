@@ -31,8 +31,8 @@ export class ApiError extends Error {
   }
 }
 
-/** Relative paths only: the app and the API share one origin (ADR 0012). /health is for development (T33). */
-export type ApiPath = `/v1/${string}` | "/health";
+/** Relative paths only: the app and the API share one origin (ADR 0012). */
+export type ApiPath = `/v1/${string}`;
 
 export interface ApiRequest {
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
