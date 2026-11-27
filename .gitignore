@@ -25,3 +25,4 @@ crash.log
 # Build output of infra/deploy.sh (T27b)
 worker/.package/
 infra/.build/
+web/dist/

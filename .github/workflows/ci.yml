@@ -127,6 +127,34 @@ jobs:
           name: worker-log
           path: worker.log
 
+  # T33: the web app (ADR 0012). No database or .NET needed: component tests mock the API.
+  web:
+    name: Web tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: web/.nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install
+        run: npm ci --no-audit --no-fund
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: API types match the spec
+        run: npm run check:api
+      - name: Test
+        run: npm test
+      - name: Build
+        run: npm run build
+
   real-aws:
     name: Real-AWS tests
     if: github.ref == 'refs/heads/main'
