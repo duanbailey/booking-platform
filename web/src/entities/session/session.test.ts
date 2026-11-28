@@ -108,6 +108,15 @@ describe("session.authFetch", () => {
     expect(api.calls("GET /v1/me/bookings")[0]!.headers.get("Authorization")).toBe("Bearer a1");
   });
 
+  it("waits for the session to start before calling (a page's loader runs alongside the login check)", async () => {
+    const api = mockApi({ [REFRESH]: [token("a1")], [ME]: [me()], "GET /v1/a": [new Response("1", { status: 200 })] });
+
+    await expect(session.authFetch("/v1/a")).resolves.toBe(1);
+
+    expect(api.calls("GET /v1/a")[0]!.headers.get("Authorization")).toBe("Bearer a1");
+    expect(api.calls(REFRESH)).toHaveLength(1);
+  });
+
   it("refreshes once on 401 Unauthenticated and retries with the new token", async () => {
     const api = await loggedIn({
       "GET /v1/me/bookings": [apiError(401, "Unauthenticated"), new Response('{"items":[]}', { status: 200 })],

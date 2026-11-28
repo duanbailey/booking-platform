@@ -1,5 +1,6 @@
 import type { RouteObject } from "react-router";
 import { acceptInviteRoute } from "@/pages/accept-invite";
+import { businessRoute } from "@/pages/business";
 import { changePasswordRoute } from "@/pages/change-password";
 import { forgotPasswordRoute } from "@/pages/forgot-password";
 import { homeRoute } from "@/pages/home";
@@ -7,6 +8,7 @@ import { loginRoute } from "@/pages/login";
 import { notFoundRoute } from "@/pages/not-found";
 import { profileRoute } from "@/pages/profile";
 import { resetPasswordRoute } from "@/pages/reset-password";
+import { serviceSlotsRoute } from "@/pages/service-slots";
 import { signUpRoute } from "@/pages/sign-up";
 import { guestOnly, Loading, requireUser, RootError, RootLayout, UserLayout } from "./layouts";
 
@@ -30,6 +32,6 @@ export const routes: RouteObject[] = [
     acceptInviteRoute,
     resetPasswordRoute,
     // Logged-in users (T34).
-    { loader: requireUser, element: <UserLayout />, children: [homeRoute, profileRoute, changePasswordRoute] },
+    { loader: requireUser, element: <UserLayout />, children: [homeRoute, profileRoute, changePasswordRoute, businessRoute, serviceSlotsRoute] },
   ]),
 ];

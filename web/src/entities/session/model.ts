@@ -126,6 +126,8 @@ export const session = {
    * tab) and retries; if the refresh is refused or the retry gets 401 again, the session ends (specs/09-ui.md).
    */
   async authFetch<T = unknown>(path: ApiPath, request: ApiRequest = {}): Promise<T> {
+    // A page's loader runs alongside the login check (requireUser), so the first call on load waits for it (T36).
+    if (state.status === "unknown") await session.start();
     const sentWith = accessToken;
     try {
       return await apiFetch<T>(path, { ...request, accessToken: sentWith ?? undefined });

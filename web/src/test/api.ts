@@ -30,8 +30,10 @@ export function mockApi(routes: Record<string, Answer[]>) {
       credentials: init.credentials,
       signal: init.signal ?? undefined,
     });
-    const next = queues.get(key)?.shift();
+    const queue = queues.get(key);
+    const next = queue?.[0];
     if (next === undefined) throw new Error(`Unexpected call: ${key}`);
+    if (!repeating.has(next)) queue!.shift();
     if (next instanceof Error) throw next;
     return typeof next === "function" ? next() : next;
   }));
@@ -43,6 +45,20 @@ export function mockApi(routes: Record<string, Answer[]>) {
       queues.set(key, [...(queues.get(key) ?? []), ...answers]);
     },
   };
+}
+
+const repeating = new WeakSet<object>();
+
+/** An answer given to every call (it stays first in its queue), e.g. for data a loader reloads. */
+export function always(make: () => Response | Promise<Response>): () => Response | Promise<Response> {
+  const answer = () => make();
+  repeating.add(answer);
+  return answer;
+}
+
+/** A JSON response. */
+export function json(status: number, body: unknown) {
+  return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 }
 
 /** An API error response in the shared Error shape. */
@@ -60,9 +76,11 @@ export function token(accessToken: string) {
 }
 
 /** A getMe body for a user with the given roles. */
-export function me(roles: { admin?: boolean; owner?: boolean; staff?: boolean } = {}, name = "Olive Owner") {
+export function me(
+  roles: { admin?: boolean; owner?: boolean; staff?: boolean } = {}, name = "Olive Owner", timeZone = "America/New_York",
+) {
   return new Response(JSON.stringify({
-    id: "u1", email: "olive@example.test", name, timeZone: "America/New_York",
+    id: "u1", email: "olive@example.test", name, timeZone,
     isAdmin: roles.admin ?? false,
     ownedBusinessId: roles.owner ? "b1" : null,
     staff: roles.staff ? [{ staffId: "s1", businessId: "b1" }] : [],

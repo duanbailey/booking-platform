@@ -1,0 +1,19 @@
+.services {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.services li {
+  padding: var(--space-4) 0;
+  border-bottom: var(--border-width) solid var(--color-border);
+}
+
+.services h2 {
+  margin: 0 0 var(--space-2);
+  font-size: 1.25rem;
+}
+
+.services p {
+  margin: var(--space-1) 0;
+}
